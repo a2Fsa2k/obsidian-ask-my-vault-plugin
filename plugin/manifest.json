@@ -1,0 +1,10 @@
+{
+	"id": "obsidian-rag-chat",
+	"name": "RAG Chat",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "RAG-powered chat with your vault using vector search and AI",
+	"author": "Your Name",
+	"authorUrl": "",
+	"isDesktopOnly": false
+}
