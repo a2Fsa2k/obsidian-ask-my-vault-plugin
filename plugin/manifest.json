@@ -4,7 +4,7 @@
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
 	"description": "Chat with your vault using local vector search (RAG) and any AI provider — OpenAI, Claude, Gemini, Mistral, Groq, Ollama, and more.",
-	"author": "urngmi",
-	"authorUrl": "https://github.com/urngmi",
+	"author": "a2Fsa2k",
+	"authorUrl": "https://github.com/a2Fsa2k",
 	"isDesktopOnly": true
 }
