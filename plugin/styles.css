@@ -210,6 +210,10 @@
 	min-height: 24px;
 }
 
+.rag-chat-input--resized {
+	height: var(--rag-input-height, auto);
+}
+
 .rag-chat-input:focus {
 	outline: none;
 }

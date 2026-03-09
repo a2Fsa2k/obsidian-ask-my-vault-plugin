@@ -1,4 +1,4 @@
-import { App, Plugin, PluginSettingTab, Setting, WorkspaceLeaf, ItemView, MarkdownRenderer, TFile, Notice } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, WorkspaceLeaf, ItemView, MarkdownRenderer, TFile, Notice, requestUrl } from 'obsidian';
 
 interface RAGChatSettings {
 	provider: string;
@@ -83,7 +83,7 @@ class RAGChatView extends ItemView {
 		return 'message-circle';
 	}
 
-	async onOpen() {
+	async onOpen(): Promise<void> {
 		const container = this.containerEl.children[1];
 		container.empty();
 		container.addClass('rag-chat-view');
@@ -94,10 +94,10 @@ class RAGChatView extends ItemView {
 		// Input container
 		const inputContainer = container.createDiv({ cls: 'rag-chat-input-container' });
 		const inputWrapper = inputContainer.createDiv({ cls: 'rag-chat-input-wrapper' });
-		
+
 		this.inputEl = inputWrapper.createEl('textarea', {
 			cls: 'rag-chat-input',
-			attr: { 
+			attr: {
 				placeholder: 'Ask a question about your notes...',
 				rows: '1'
 			}
@@ -108,32 +108,31 @@ class RAGChatView extends ItemView {
 			cls: 'rag-chat-send-button'
 		});
 
-		// Auto-resize textarea
+		// Auto-resize textarea using CSS custom property instead of inline style
 		this.inputEl.addEventListener('input', () => {
-			this.inputEl.style.height = 'auto';
-			this.inputEl.style.height = Math.min(this.inputEl.scrollHeight, 200) + 'px';
+			const maxHeight = 200;
+			const newHeight = Math.min(this.inputEl.scrollHeight, maxHeight);
+			this.inputEl.setCssProps({ '--rag-input-height': `${newHeight}px` });
+			this.inputEl.addClass('rag-chat-input--resized');
 		});
 
-		sendButton.addEventListener('click', () => this.sendMessage());
+		sendButton.addEventListener('click', () => { void this.sendMessage(); });
 		this.inputEl.addEventListener('keydown', (e) => {
 			if (e.key === 'Enter' && !e.shiftKey) {
 				e.preventDefault();
-				this.sendMessage();
+				void this.sendMessage();
 			}
 		});
 
 		this.renderMessages();
 	}
 
-	async onClose() {
-		// Cleanup
+	async onClose(): Promise<void> {
+		// No cleanup needed
+		return Promise.resolve();
 	}
 
-	addStyles() {
-		// Styles are now loaded from styles.css
-	}
-
-	async sendMessage() {
+	async sendMessage(): Promise<void> {
 		const question = this.inputEl.value.trim();
 		if (!question) return;
 
@@ -167,10 +166,10 @@ class RAGChatView extends ItemView {
 			const model = provider === 'local'
 				? this.plugin.settings.localLlmModel
 				: this.plugin.settings.model;
-			// Pass local LLM type so backend knows which API format to use
 			const localLlmType = provider === 'local' ? this.plugin.settings.localLlmType : '';
 
-			const response = await fetch(`${this.plugin.settings.backendUrl}/query`, {
+			const response = await requestUrl({
+				url: `${this.plugin.settings.backendUrl}/query`,
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -186,11 +185,7 @@ class RAGChatView extends ItemView {
 				})
 			});
 
-			if (!response.ok) {
-				throw new Error(`HTTP ${response.status}: ${await response.text()}`);
-			}
-
-			const data = await response.json();
+			const data = response.json;
 
 			// Replace loading message
 			this.messages.pop();
@@ -201,14 +196,15 @@ class RAGChatView extends ItemView {
 			});
 			this.renderMessages();
 
-		} catch (error) {
+		} catch (error: unknown) {
 			this.messages.pop();
+			const msg = error instanceof Error ? error.message : String(error);
 			this.messages.push({
 				role: 'assistant',
-				content: `Error: ${error.message}`
+				content: `Error: ${msg}`
 			});
 			this.renderMessages();
-			new Notice(`Query failed: ${error.message}`);
+			new Notice(`Query failed: ${msg}`);
 		}
 	}
 
@@ -270,7 +266,7 @@ class RAGChatView extends ItemView {
 		this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
 	}
 
-	async openFile(filePath: string) {
+	async openFile(filePath: string): Promise<void> {
 		const file = this.app.vault.getAbstractFileByPath(filePath);
 		if (file instanceof TFile) {
 			const leaf = this.app.workspace.getLeaf(false);
@@ -283,10 +279,10 @@ class RAGChatView extends ItemView {
 
 export default class RAGChatPlugin extends Plugin {
 	settings: RAGChatSettings;
-	indexingDebounceTimer: NodeJS.Timeout | null = null;
+	indexingDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	isInitialIndexComplete: boolean = false;
 
-	async onload() {
+	async onload(): Promise<void> {
 		await this.loadSettings();
 
 		// Register view
@@ -297,15 +293,15 @@ export default class RAGChatPlugin extends Plugin {
 
 		// Add ribbon icon
 		this.addRibbonIcon('message-circle', 'Open RAG Chat', () => {
-			this.activateView();
+			void this.activateView();
 		});
 
 		// Add command
 		this.addCommand({
-			id: 'open-rag-chat',
-			name: 'Open RAG Chat',
+			id: 'open-view',
+			name: 'Open chat view',
 			callback: () => {
-				this.activateView();
+				void this.activateView();
 			}
 		});
 
@@ -332,7 +328,7 @@ export default class RAGChatPlugin extends Plugin {
 		this.registerEvent(
 			this.app.vault.on('delete', (file) => {
 				if (file instanceof TFile && file.extension === 'md') {
-					this.deleteFromIndex(file.path);
+					void this.deleteFromIndex(file.path);
 				}
 			})
 		);
@@ -340,14 +336,14 @@ export default class RAGChatPlugin extends Plugin {
 		this.registerEvent(
 			this.app.vault.on('rename', (file, oldPath) => {
 				if (file instanceof TFile && file.extension === 'md') {
-					this.deleteFromIndex(oldPath);
+					void this.deleteFromIndex(oldPath);
 					this.scheduleIndexing(file);
 				}
 			})
 		);
 
 		// Auto-index vault on first load if needed
-		this.autoIndexVault();
+		void this.autoIndexVault();
 	}
 
 	async activateView() {
@@ -371,20 +367,21 @@ export default class RAGChatPlugin extends Plugin {
 		}
 	}
 
-	scheduleIndexing(file: TFile) {
+	scheduleIndexing(file: TFile): void {
 		if (this.indexingDebounceTimer) {
 			clearTimeout(this.indexingDebounceTimer);
 		}
 
-		this.indexingDebounceTimer = setTimeout(async () => {
-			await this.indexFile(file);
+		this.indexingDebounceTimer = setTimeout(() => {
+			void this.indexFile(file);
 		}, 1000);
 	}
 
-	async indexFile(file: TFile) {
+	async indexFile(file: TFile): Promise<void> {
 		try {
 			const content = await this.app.vault.read(file);
-			await fetch(`${this.settings.backendUrl}/index`, {
+			await requestUrl({
+				url: `${this.settings.backendUrl}/index`,
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
@@ -392,48 +389,45 @@ export default class RAGChatPlugin extends Plugin {
 					content: content
 				})
 			});
-		} catch (error) {
+		} catch (error: unknown) {
 			console.error('Failed to index file:', error);
 		}
 	}
 
-	async deleteFromIndex(filePath: string) {
+	async deleteFromIndex(filePath: string): Promise<void> {
 		try {
-			await fetch(`${this.settings.backendUrl}/index/${encodeURIComponent(filePath)}`, {
+			await requestUrl({
+				url: `${this.settings.backendUrl}/index/${encodeURIComponent(filePath)}`,
 				method: 'DELETE'
 			});
-		} catch (error) {
+		} catch (error: unknown) {
 			console.error('Failed to delete file from index:', error);
 		}
 	}
 
-	async autoIndexVault() {
-		// Check if vault needs initial indexing
+	async autoIndexVault(): Promise<void> {
 		try {
-			const response = await fetch(`${this.settings.backendUrl}/status`);
-			if (!response.ok) return;
-			
-			const status = await response.json();
-			
-			// If no files indexed, do initial index
+			const response = await requestUrl({ url: `${this.settings.backendUrl}/status` });
+			const status = response.json;
+
 			if (status.indexed_files === 0) {
 				const mdFiles = this.app.vault.getMarkdownFiles();
 				if (mdFiles.length > 0) {
 					new Notice(`Indexing ${mdFiles.length} notes... This may take a moment.`);
-					
+
 					let indexed = 0;
 					for (const file of mdFiles) {
 						await this.indexFile(file);
 						indexed++;
 					}
-					
+
 					this.isInitialIndexComplete = true;
 					new Notice(`✅ Indexed ${indexed} notes successfully!`);
 				}
 			} else {
 				this.isInitialIndexComplete = true;
 			}
-		} catch (error) {
+		} catch (error: unknown) {
 			console.error('Auto-index failed:', error);
 		}
 	}
@@ -459,10 +453,11 @@ class RAGChatSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		containerEl.createEl('h2', { text: 'RAG Chat Settings' });
+		// Use Setting heading instead of raw h2/h3 elements
+		new Setting(containerEl).setName('RAG Chat settings').setHeading();
 
 		// ── Backend ──────────────────────────────────────────────────────────
-		containerEl.createEl('h3', { text: '🖥️ Backend' });
+		new Setting(containerEl).setName('Backend').setHeading();
 
 		new Setting(containerEl)
 			.setName('Backend URL')
@@ -483,8 +478,8 @@ class RAGChatSettingTab extends PluginSettingTab {
 				.onClick(async () => {
 					button.setDisabled(true);
 					try {
-						const r = await fetch(`${this.plugin.settings.backendUrl}/health`);
-						if (r.ok) new Notice('✅ Backend is reachable');
+						const r = await requestUrl({ url: `${this.plugin.settings.backendUrl}/health` });
+						if (r.status === 200) new Notice('✅ Backend is reachable');
 						else new Notice(`❌ Backend returned HTTP ${r.status}`);
 					} catch {
 						new Notice('❌ Cannot reach backend. Is it running?\n\nRun: cd backend && python main.py');
@@ -494,9 +489,9 @@ class RAGChatSettingTab extends PluginSettingTab {
 				}));
 
 		// ── AI Provider ──────────────────────────────────────────────────────
-		containerEl.createEl('h3', { text: '🤖 AI Provider' });
+		new Setting(containerEl).setName('AI provider').setHeading();
 
-		const providerDropdown = new Setting(containerEl)
+		new Setting(containerEl)
 			.setName('Provider')
 			.setDesc('Select the AI provider to use')
 			.addDropdown(dropdown => {
@@ -521,7 +516,6 @@ class RAGChatSettingTab extends PluginSettingTab {
 		const providerInfo = PROVIDERS[this.plugin.settings.provider];
 
 		if (!isLocal) {
-			// Base URL — editable only for custom
 			new Setting(containerEl)
 				.setName('Base URL')
 				.setDesc('API base URL (auto-filled for known providers)')
@@ -537,10 +531,9 @@ class RAGChatSettingTab extends PluginSettingTab {
 					return t;
 				});
 
-			// API Key
 			if (isCustom || providerInfo?.needsKey) {
 				new Setting(containerEl)
-					.setName('API Key')
+					.setName('API key')
 					.setDesc('Your API key for the selected provider')
 					.addText(text => {
 						text
@@ -555,7 +548,6 @@ class RAGChatSettingTab extends PluginSettingTab {
 					});
 			}
 
-			// Model
 			new Setting(containerEl)
 				.setName('Model')
 				.setDesc('Model name (auto-filled, change as needed)')
@@ -570,7 +562,7 @@ class RAGChatSettingTab extends PluginSettingTab {
 
 		// ── Local LLM ────────────────────────────────────────────────────────
 		if (isLocal) {
-			containerEl.createEl('h3', { text: '🏠 Local LLM Settings' });
+			new Setting(containerEl).setName('Local LLM settings').setHeading();
 
 			new Setting(containerEl)
 				.setName('Local LLM type')
@@ -592,10 +584,9 @@ class RAGChatSettingTab extends PluginSettingTab {
 
 			const localInfo = LOCAL_LLM_TYPES[this.plugin.settings.localLlmType];
 			if (localInfo) {
-				containerEl.createEl('p', {
-					text: `💡 ${localInfo.hint}`,
-					cls: 'setting-item-description'
-				});
+				new Setting(containerEl)
+					.setName('Setup hint')
+					.setDesc(`💡 ${localInfo.hint}`);
 			}
 
 			new Setting(containerEl)
@@ -629,14 +620,15 @@ class RAGChatSettingTab extends PluginSettingTab {
 						button.setDisabled(true);
 						const url = this.plugin.settings.localLlmUrl;
 						try {
-							// Ollama has /api/tags, others have /v1/models or just /health
 							const endpoints = ['/api/tags', '/v1/models', '/health'];
 							let reachable = false;
 							for (const ep of endpoints) {
 								try {
-									const r = await fetch(url + ep);
-									if (r.ok || r.status < 500) { reachable = true; break; }
-								} catch {}
+									const r = await requestUrl({ url: url + ep });
+									if (r.status < 500) { reachable = true; break; }
+								} catch {
+									// try next endpoint
+								}
 							}
 							if (reachable) {
 								new Notice(`✅ Local LLM server is reachable at ${url}`);
@@ -652,7 +644,7 @@ class RAGChatSettingTab extends PluginSettingTab {
 		}
 
 		// ── Generation ───────────────────────────────────────────────────────
-		containerEl.createEl('h3', { text: '⚙️ Generation' });
+		new Setting(containerEl).setName('Generation').setHeading();
 
 		new Setting(containerEl)
 			.setName('Temperature')
@@ -667,7 +659,7 @@ class RAGChatSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('System Prompt')
+			.setName('System prompt')
 			.setDesc('Instructions for the AI assistant')
 			.addTextArea(text => text
 				.setPlaceholder('You are a helpful assistant...')
@@ -679,7 +671,7 @@ class RAGChatSettingTab extends PluginSettingTab {
 				.inputEl.rows = 4);
 
 		// ── Privacy & Index ──────────────────────────────────────────────────
-		containerEl.createEl('h3', { text: '🔒 Privacy & Index' });
+		new Setting(containerEl).setName('Privacy & index').setHeading();
 
 		new Setting(containerEl)
 			.setName('Data consent')
@@ -692,7 +684,7 @@ class RAGChatSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Rebuild Index')
+			.setName('Rebuild index')
 			.setDesc('Re-index all notes in your vault (safe to run at any time)')
 			.addButton(button => button
 				.setButtonText('Rebuild')
@@ -700,21 +692,18 @@ class RAGChatSettingTab extends PluginSettingTab {
 					button.setDisabled(true);
 					button.setButtonText('Rebuilding...');
 					try {
-						const vaultPath = (this.app.vault.adapter as any).basePath;
-						const response = await fetch(`${this.plugin.settings.backendUrl}/rebuild`, {
+						const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
+						const response = await requestUrl({
+							url: `${this.plugin.settings.backendUrl}/rebuild`,
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
 							body: JSON.stringify({ vault_path: vaultPath })
 						});
-						if (response.ok) {
-							const data = await response.json();
-							new Notice(`✅ Index rebuilt: ${data.indexed_files} files, ${data.total_chunks} chunks`);
-						} else {
-							const err = await response.text();
-							throw new Error(err);
-						}
-					} catch (error) {
-						new Notice(`❌ Rebuild failed: ${error.message}`);
+						const data = response.json;
+						new Notice(`✅ Index rebuilt: ${data.indexed_files} files, ${data.total_chunks} chunks`);
+					} catch (error: unknown) {
+						const msg = error instanceof Error ? error.message : String(error);
+						new Notice(`❌ Rebuild failed: ${msg}`);
 					} finally {
 						button.setDisabled(false);
 						button.setButtonText('Rebuild');
