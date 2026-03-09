@@ -7,3 +7,5 @@ main.js
 *.js.map
 .obsidian/
 .env
+test_*.py
+STRUCTURE.md

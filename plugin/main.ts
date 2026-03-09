@@ -9,28 +9,47 @@ interface RAGChatSettings {
 	systemPrompt: string;
 	backendUrl: string;
 	consentGiven: boolean;
-	enableLocalLLM: boolean;
+	localLlmType: string;  // 'ollama' | 'llamacpp' | 'lmstudio' | 'openaicompat'
+	localLlmUrl: string;
+	localLlmModel: string;
 }
 
 const DEFAULT_SETTINGS: RAGChatSettings = {
 	provider: 'openai',
 	baseUrl: 'https://api.openai.com',
 	apiKey: '',
-	model: 'gpt-4',
+	model: 'gpt-4o',
 	temperature: 0.7,
 	systemPrompt: 'You are a helpful assistant. Answer questions based on the provided context from the user\'s knowledge base.',
 	backendUrl: 'http://localhost:8000',
 	consentGiven: false,
-	enableLocalLLM: false
+	localLlmType: 'ollama',
+	localLlmUrl: 'http://localhost:11434',
+	localLlmModel: 'llama3'
 };
 
-const PROVIDER_BASE_URLS: Record<string, string> = {
-	'openai': 'https://api.openai.com',
-	'anthropic': 'https://api.anthropic.com',
-	'google': 'https://generativelanguage.googleapis.com',
-	'mistral': 'https://api.mistral.ai',
-	'custom': '',
-	'local': 'http://localhost:8080'
+// Providers with their base URLs and default models
+const PROVIDERS: Record<string, { url: string; model: string; label: string; needsKey: boolean }> = {
+	'openai':     { url: 'https://api.openai.com',                         model: 'gpt-4o',                      label: 'OpenAI',                   needsKey: true  },
+	'anthropic':  { url: 'https://api.anthropic.com',                      model: 'claude-3-5-sonnet-20241022',   label: 'Anthropic (Claude)',        needsKey: true  },
+	'google':     { url: 'https://generativelanguage.googleapis.com',       model: 'gemini-2.0-flash',            label: 'Google Gemini',             needsKey: true  },
+	'mistral':    { url: 'https://api.mistral.ai',                         model: 'mistral-large-latest',         label: 'Mistral',                  needsKey: true  },
+	'groq':       { url: 'https://api.groq.com/openai',                    model: 'llama-3.3-70b-versatile',     label: 'Groq (fast inference)',     needsKey: true  },
+	'xai':        { url: 'https://api.x.ai',                               model: 'grok-2-latest',               label: 'xAI (Grok)',               needsKey: true  },
+	'deepseek':   { url: 'https://api.deepseek.com',                       model: 'deepseek-chat',               label: 'DeepSeek',                 needsKey: true  },
+	'cohere':     { url: 'https://api.cohere.com',                         model: 'command-r-plus-08-2024',       label: 'Cohere',                   needsKey: true  },
+	'together':   { url: 'https://api.together.xyz',                       model: 'meta-llama/Llama-3-70b-chat-hf', label: 'Together AI',            needsKey: true  },
+	'perplexity': { url: 'https://api.perplexity.ai',                      model: 'llama-3.1-sonar-large-128k-online', label: 'Perplexity',          needsKey: true  },
+	'local':      { url: 'http://localhost:11434',                          model: 'llama3',                      label: 'Local LLM',                needsKey: false },
+	'custom':     { url: '',                                                model: '',                            label: 'Custom (OpenAI-compat)',    needsKey: false },
+};
+
+const LOCAL_LLM_TYPES: Record<string, { label: string; defaultUrl: string; defaultModel: string; hint: string }> = {
+	'ollama':       { label: 'Ollama',                defaultUrl: 'http://localhost:11434', defaultModel: 'llama3',   hint: 'Run: ollama serve' },
+	'llamacpp':     { label: 'llama.cpp server',       defaultUrl: 'http://localhost:8080',  defaultModel: 'local',    hint: 'Run: ./llama-server -m model.gguf --port 8080' },
+	'lmstudio':     { label: 'LM Studio',              defaultUrl: 'http://localhost:1234',  defaultModel: 'local',    hint: 'Start server in LM Studio app' },
+	'jan':          { label: 'Jan',                    defaultUrl: 'http://localhost:1337',  defaultModel: 'local',    hint: 'Start server in Jan app' },
+	'openaicompat': { label: 'Other (OpenAI-compat)',  defaultUrl: 'http://localhost:8080',  defaultModel: 'local',    hint: 'Any server with /v1/chat/completions' },
 };
 
 const VIEW_TYPE_RAG_CHAT = 'rag-chat-view';
@@ -123,8 +142,10 @@ class RAGChatView extends ItemView {
 			return;
 		}
 
-		if (!this.plugin.settings.apiKey && !this.plugin.settings.enableLocalLLM) {
-			new Notice('Please configure API key in settings');
+		const isLocal = this.plugin.settings.provider === 'local';
+		const providerInfo = PROVIDERS[this.plugin.settings.provider];
+		if (!isLocal && providerInfo?.needsKey && !this.plugin.settings.apiKey) {
+			new Notice('Please configure an API key in Settings → RAG Chat');
 			return;
 		}
 
@@ -139,10 +160,15 @@ class RAGChatView extends ItemView {
 		this.renderMessages();
 
 		try {
-			const provider = this.plugin.settings.enableLocalLLM ? 'local' : this.plugin.settings.provider;
-			const baseUrl = this.plugin.settings.enableLocalLLM 
-				? PROVIDER_BASE_URLS['local'] 
+			const provider = this.plugin.settings.provider;
+			const baseUrl = provider === 'local'
+				? this.plugin.settings.localLlmUrl
 				: this.plugin.settings.baseUrl;
+			const model = provider === 'local'
+				? this.plugin.settings.localLlmModel
+				: this.plugin.settings.model;
+			// Pass local LLM type so backend knows which API format to use
+			const localLlmType = provider === 'local' ? this.plugin.settings.localLlmType : '';
 
 			const response = await fetch(`${this.plugin.settings.backendUrl}/query`, {
 				method: 'POST',
@@ -152,9 +178,10 @@ class RAGChatView extends ItemView {
 					provider,
 					base_url: baseUrl,
 					api_key: this.plugin.settings.apiKey,
-					model: this.plugin.settings.model,
+					model: model,
 					temperature: this.plugin.settings.temperature,
 					system_prompt: this.plugin.settings.systemPrompt,
+					local_llm_type: localLlmType,
 					top_k: 5
 				})
 			});
@@ -434,87 +461,202 @@ class RAGChatSettingTab extends PluginSettingTab {
 
 		containerEl.createEl('h2', { text: 'RAG Chat Settings' });
 
-		// Backend URL
+		// ── Backend ──────────────────────────────────────────────────────────
+		containerEl.createEl('h3', { text: '🖥️ Backend' });
+
 		new Setting(containerEl)
 			.setName('Backend URL')
-			.setDesc('URL of the RAG backend server')
+			.setDesc('URL of the RAG backend server (must be running locally)')
 			.addText(text => text
 				.setPlaceholder('http://localhost:8000')
 				.setValue(this.plugin.settings.backendUrl)
 				.onChange(async (value) => {
-					this.plugin.settings.backendUrl = value;
+					this.plugin.settings.backendUrl = value.trim();
 					await this.plugin.saveSettings();
 				}));
 
-		// Provider
 		new Setting(containerEl)
-			.setName('AI Provider')
+			.setName('Test connection')
+			.setDesc('Verify the backend is reachable')
+			.addButton(button => button
+				.setButtonText('Test')
+				.onClick(async () => {
+					button.setDisabled(true);
+					try {
+						const r = await fetch(`${this.plugin.settings.backendUrl}/health`);
+						if (r.ok) new Notice('✅ Backend is reachable');
+						else new Notice(`❌ Backend returned HTTP ${r.status}`);
+					} catch {
+						new Notice('❌ Cannot reach backend. Is it running?\n\nRun: cd backend && python main.py');
+					} finally {
+						button.setDisabled(false);
+					}
+				}));
+
+		// ── AI Provider ──────────────────────────────────────────────────────
+		containerEl.createEl('h3', { text: '🤖 AI Provider' });
+
+		const providerDropdown = new Setting(containerEl)
+			.setName('Provider')
 			.setDesc('Select the AI provider to use')
-			.addDropdown(dropdown => dropdown
-				.addOption('openai', 'OpenAI')
-				.addOption('anthropic', 'Anthropic (Claude)')
-				.addOption('google', 'Google Gemini')
-				.addOption('mistral', 'Mistral')
-				.addOption('custom', 'Custom (OpenAI-compatible)')
-				.setValue(this.plugin.settings.provider)
-				.onChange(async (value) => {
+			.addDropdown(dropdown => {
+				for (const [key, info] of Object.entries(PROVIDERS)) {
+					dropdown.addOption(key, info.label);
+				}
+				dropdown.setValue(this.plugin.settings.provider);
+				dropdown.onChange(async (value) => {
 					this.plugin.settings.provider = value;
-					if (value !== 'custom') {
-						this.plugin.settings.baseUrl = PROVIDER_BASE_URLS[value];
+					if (value !== 'custom' && value !== 'local') {
+						this.plugin.settings.baseUrl = PROVIDERS[value].url;
+						this.plugin.settings.model = PROVIDERS[value].model;
 					}
 					await this.plugin.saveSettings();
 					this.display();
-				}));
-
-		// Base URL
-		const baseUrlSetting = new Setting(containerEl)
-			.setName('Base URL')
-			.setDesc('API endpoint base URL')
-			.addText(text => {
-				const input = text
-					.setPlaceholder('https://api.openai.com')
-					.setValue(this.plugin.settings.baseUrl)
-					.onChange(async (value) => {
-						this.plugin.settings.baseUrl = value;
-						await this.plugin.saveSettings();
-					});
-				
-				if (this.plugin.settings.provider !== 'custom') {
-					input.setDisabled(true);
-				}
-				
-				return input;
+				});
+				return dropdown;
 			});
 
-		// API Key
-		new Setting(containerEl)
-			.setName('API Key')
-			.setDesc('Your API key for the selected provider')
-			.addText(text => text
-				.setPlaceholder('sk-...')
-				.setValue(this.plugin.settings.apiKey)
-				.onChange(async (value) => {
-					this.plugin.settings.apiKey = value;
-					await this.plugin.saveSettings();
-				})
-				.inputEl.type = 'password');
+		const isLocal = this.plugin.settings.provider === 'local';
+		const isCustom = this.plugin.settings.provider === 'custom';
+		const providerInfo = PROVIDERS[this.plugin.settings.provider];
 
-		// Model Name
-		new Setting(containerEl)
-			.setName('Model Name')
-			.setDesc('The model to use (e.g., gpt-4, claude-3-opus-20240229, gemini-pro)')
-			.addText(text => text
-				.setPlaceholder('gpt-4')
-				.setValue(this.plugin.settings.model)
-				.onChange(async (value) => {
-					this.plugin.settings.model = value;
-					await this.plugin.saveSettings();
-				}));
+		if (!isLocal) {
+			// Base URL — editable only for custom
+			new Setting(containerEl)
+				.setName('Base URL')
+				.setDesc('API base URL (auto-filled for known providers)')
+				.addText(text => {
+					const t = text
+						.setPlaceholder('https://api.openai.com')
+						.setValue(this.plugin.settings.baseUrl)
+						.onChange(async (value) => {
+							this.plugin.settings.baseUrl = value.trim();
+							await this.plugin.saveSettings();
+						});
+					if (!isCustom) t.setDisabled(true);
+					return t;
+				});
 
-		// Temperature
+			// API Key
+			if (isCustom || providerInfo?.needsKey) {
+				new Setting(containerEl)
+					.setName('API Key')
+					.setDesc('Your API key for the selected provider')
+					.addText(text => {
+						text
+							.setPlaceholder('sk-...')
+							.setValue(this.plugin.settings.apiKey)
+							.onChange(async (value) => {
+								this.plugin.settings.apiKey = value.trim();
+								await this.plugin.saveSettings();
+							});
+						text.inputEl.type = 'password';
+						return text;
+					});
+			}
+
+			// Model
+			new Setting(containerEl)
+				.setName('Model')
+				.setDesc('Model name (auto-filled, change as needed)')
+				.addText(text => text
+					.setPlaceholder(providerInfo?.model ?? 'model-name')
+					.setValue(this.plugin.settings.model)
+					.onChange(async (value) => {
+						this.plugin.settings.model = value.trim();
+						await this.plugin.saveSettings();
+					}));
+		}
+
+		// ── Local LLM ────────────────────────────────────────────────────────
+		if (isLocal) {
+			containerEl.createEl('h3', { text: '🏠 Local LLM Settings' });
+
+			new Setting(containerEl)
+				.setName('Local LLM type')
+				.setDesc('Which local server are you running?')
+				.addDropdown(dropdown => {
+					for (const [key, info] of Object.entries(LOCAL_LLM_TYPES)) {
+						dropdown.addOption(key, info.label);
+					}
+					dropdown.setValue(this.plugin.settings.localLlmType);
+					dropdown.onChange(async (value) => {
+						this.plugin.settings.localLlmType = value;
+						this.plugin.settings.localLlmUrl = LOCAL_LLM_TYPES[value].defaultUrl;
+						this.plugin.settings.localLlmModel = LOCAL_LLM_TYPES[value].defaultModel;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+					return dropdown;
+				});
+
+			const localInfo = LOCAL_LLM_TYPES[this.plugin.settings.localLlmType];
+			if (localInfo) {
+				containerEl.createEl('p', {
+					text: `💡 ${localInfo.hint}`,
+					cls: 'setting-item-description'
+				});
+			}
+
+			new Setting(containerEl)
+				.setName('Local server URL')
+				.setDesc('Full URL including port')
+				.addText(text => text
+					.setPlaceholder(localInfo?.defaultUrl ?? 'http://localhost:11434')
+					.setValue(this.plugin.settings.localLlmUrl)
+					.onChange(async (value) => {
+						this.plugin.settings.localLlmUrl = value.trim();
+						await this.plugin.saveSettings();
+					}));
+
+			new Setting(containerEl)
+				.setName('Model name')
+				.setDesc('Model to use (e.g. llama3, mistral, phi3)')
+				.addText(text => text
+					.setPlaceholder(localInfo?.defaultModel ?? 'llama3')
+					.setValue(this.plugin.settings.localLlmModel)
+					.onChange(async (value) => {
+						this.plugin.settings.localLlmModel = value.trim();
+						await this.plugin.saveSettings();
+					}));
+
+			new Setting(containerEl)
+				.setName('Test local LLM')
+				.setDesc('Check if the local server is reachable')
+				.addButton(button => button
+					.setButtonText('Test')
+					.onClick(async () => {
+						button.setDisabled(true);
+						const url = this.plugin.settings.localLlmUrl;
+						try {
+							// Ollama has /api/tags, others have /v1/models or just /health
+							const endpoints = ['/api/tags', '/v1/models', '/health'];
+							let reachable = false;
+							for (const ep of endpoints) {
+								try {
+									const r = await fetch(url + ep);
+									if (r.ok || r.status < 500) { reachable = true; break; }
+								} catch {}
+							}
+							if (reachable) {
+								new Notice(`✅ Local LLM server is reachable at ${url}`);
+							} else {
+								new Notice(`❌ Server at ${url} is not responding.\n\n${localInfo?.hint ?? ''}`);
+							}
+						} catch {
+							new Notice(`❌ Cannot reach ${url}\n\n${localInfo?.hint ?? 'Is the server running?'}`);
+						} finally {
+							button.setDisabled(false);
+						}
+					}));
+		}
+
+		// ── Generation ───────────────────────────────────────────────────────
+		containerEl.createEl('h3', { text: '⚙️ Generation' });
+
 		new Setting(containerEl)
 			.setName('Temperature')
-			.setDesc('Controls randomness (0-1)')
+			.setDesc('Controls randomness: 0 = focused, 1 = creative')
 			.addSlider(slider => slider
 				.setLimits(0, 1, 0.1)
 				.setValue(this.plugin.settings.temperature)
@@ -524,7 +666,6 @@ class RAGChatSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// System Prompt
 		new Setting(containerEl)
 			.setName('System Prompt')
 			.setDesc('Instructions for the AI assistant')
@@ -537,21 +678,12 @@ class RAGChatSettingTab extends PluginSettingTab {
 				})
 				.inputEl.rows = 4);
 
-		// Local LLM toggle
-		new Setting(containerEl)
-			.setName('Enable Local LLM')
-			.setDesc('Use local LLM server (llama.cpp at :8080 or Ollama at :11434)')
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.enableLocalLLM)
-				.onChange(async (value) => {
-					this.plugin.settings.enableLocalLLM = value;
-					await this.plugin.saveSettings();
-				}));
+		// ── Privacy & Index ──────────────────────────────────────────────────
+		containerEl.createEl('h3', { text: '🔒 Privacy & Index' });
 
-		// Consent
 		new Setting(containerEl)
-			.setName('Data Consent')
-			.setDesc('I understand that vault data may be sent to external APIs')
+			.setName('Data consent')
+			.setDesc('I understand that my vault content may be sent to external AI APIs when using cloud providers')
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.consentGiven)
 				.onChange(async (value) => {
@@ -559,16 +691,14 @@ class RAGChatSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// Rebuild Index
 		new Setting(containerEl)
 			.setName('Rebuild Index')
-			.setDesc('Rebuild the entire search index from your vault')
+			.setDesc('Re-index all notes in your vault (safe to run at any time)')
 			.addButton(button => button
 				.setButtonText('Rebuild')
 				.onClick(async () => {
 					button.setDisabled(true);
 					button.setButtonText('Rebuilding...');
-					
 					try {
 						const vaultPath = (this.app.vault.adapter as any).basePath;
 						const response = await fetch(`${this.plugin.settings.backendUrl}/rebuild`, {
@@ -576,12 +706,12 @@ class RAGChatSettingTab extends PluginSettingTab {
 							headers: { 'Content-Type': 'application/json' },
 							body: JSON.stringify({ vault_path: vaultPath })
 						});
-						
 						if (response.ok) {
 							const data = await response.json();
-							new Notice(`✅ Index rebuilt! ${data.indexed_files} files, ${data.total_chunks} chunks`);
+							new Notice(`✅ Index rebuilt: ${data.indexed_files} files, ${data.total_chunks} chunks`);
 						} else {
-							throw new Error(await response.text());
+							const err = await response.text();
+							throw new Error(err);
 						}
 					} catch (error) {
 						new Notice(`❌ Rebuild failed: ${error.message}`);

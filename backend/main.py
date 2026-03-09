@@ -41,6 +41,7 @@ class QueryRequest(BaseModel):
     model: str
     temperature: float
     system_prompt: str
+    local_llm_type: str = ""   # 'ollama' | 'llamacpp' | 'lmstudio' | 'jan' | 'openaicompat'
     top_k: int = 5
 
 
@@ -59,9 +60,183 @@ class ProviderConfig(BaseModel):
     api_key: str
     model: str
     temperature: float
+    local_llm_type: str = ""
 
 
-def init_services():
+def _openai_compat_body(config: ProviderConfig, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    return {
+        "model": config.model,
+        "messages": messages,
+        "temperature": config.temperature,
+    }
+
+
+async def call_provider(config: ProviderConfig, messages: List[Dict[str, str]]) -> str:
+    provider = config.provider.lower()
+
+    async with httpx.AsyncClient(timeout=90.0) as client:
+
+        # ── Anthropic ────────────────────────────────────────────────────────
+        if provider == "anthropic":
+            headers = {
+                "x-api-key": config.api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            }
+            system_content = ""
+            anthropic_messages = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_content = msg["content"]
+                else:
+                    anthropic_messages.append({"role": msg["role"], "content": msg["content"]})
+
+            body: Dict[str, Any] = {
+                "model": config.model,
+                "messages": anthropic_messages,
+                "max_tokens": 4096,
+                "temperature": config.temperature,
+            }
+            if system_content:
+                body["system"] = system_content
+
+            url = f"{config.base_url}/v1/messages"
+            response = await client.post(url, headers=headers, json=body)
+            _raise_with_detail(response)
+            return response.json()["content"][0]["text"]
+
+        # ── Google Gemini ────────────────────────────────────────────────────
+        elif provider == "google":
+            url = f"{config.base_url}/v1beta/models/{config.model}:generateContent?key={config.api_key}"
+            contents = []
+            system_instruction = ""
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_instruction = msg["content"]
+                else:
+                    role = "user" if msg["role"] == "user" else "model"
+                    contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+
+            body = {
+                "contents": contents,
+                "generationConfig": {
+                    "temperature": config.temperature,
+                    "maxOutputTokens": 4096,
+                },
+            }
+            if system_instruction:
+                body["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+
+            response = await client.post(url, headers={"Content-Type": "application/json"}, json=body)
+            _raise_with_detail(response)
+            return response.json()["candidates"][0]["content"]["parts"][0]["text"]
+
+        # ── Cohere ───────────────────────────────────────────────────────────
+        elif provider == "cohere":
+            headers = {
+                "Authorization": f"Bearer {config.api_key}",
+                "Content-Type": "application/json",
+            }
+            # Cohere uses /v2/chat (OpenAI-compat) since 2024
+            url = f"{config.base_url}/v2/chat"
+            body = {
+                "model": config.model,
+                "messages": messages,
+                "temperature": config.temperature,
+            }
+            response = await client.post(url, headers=headers, json=body)
+            _raise_with_detail(response)
+            data = response.json()
+            # v2 returns choices[] like OpenAI
+            return data["message"]["content"][0]["text"]
+
+        # ── Local LLM ────────────────────────────────────────────────────────
+        elif provider == "local":
+            return await _call_local_llm(client, config, messages)
+
+        # ── OpenAI-compatible (OpenAI, Mistral, Groq, xAI, DeepSeek,
+        #    Together, Perplexity, Custom) ───────────────────────────────────
+        elif provider in ("openai", "mistral", "groq", "xai", "deepseek",
+                          "together", "perplexity", "custom"):
+            headers = {"Content-Type": "application/json"}
+            if config.api_key:
+                headers["Authorization"] = f"Bearer {config.api_key}"
+
+            url = f"{config.base_url}/v1/chat/completions"
+            body = _openai_compat_body(config, messages)
+            response = await client.post(url, headers=headers, json=body)
+            _raise_with_detail(response)
+            return response.json()["choices"][0]["message"]["content"]
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
+
+
+async def _call_local_llm(
+    client: httpx.AsyncClient,
+    config: ProviderConfig,
+    messages: List[Dict[str, str]],
+) -> str:
+    """
+    Route to the correct local LLM API based on local_llm_type.
+
+    Supported types:
+      ollama       – Ollama native  /api/chat  (also supports /v1/chat/completions since 0.1.24)
+      llamacpp     – llama.cpp server          /v1/chat/completions
+      lmstudio     – LM Studio server          /v1/chat/completions
+      jan          – Jan server                /v1/chat/completions
+      openaicompat – any OpenAI-compat server  /v1/chat/completions
+    """
+    base = config.base_url.rstrip("/")
+    llm_type = (config.local_llm_type or "").lower()
+
+    headers: Dict[str, str] = {"Content-Type": "application/json"}
+
+    # Ollama native API
+    if llm_type == "ollama":
+        url = f"{base}/api/chat"
+        body: Dict[str, Any] = {
+            "model": config.model,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": config.temperature},
+        }
+        response = await client.post(url, headers=headers, json=body)
+        _raise_with_detail(response, hint="Is Ollama running? Run: ollama serve")
+        data = response.json()
+        # Ollama returns {"message": {"role": "assistant", "content": "..."}}
+        return data["message"]["content"]
+
+    # All other local servers speak OpenAI /v1/chat/completions
+    url = f"{base}/v1/chat/completions"
+    body = _openai_compat_body(config, messages)
+
+    hints = {
+        "llamacpp":     "Is llama.cpp running? Run: ./llama-server -m model.gguf --port 8080",
+        "lmstudio":     "Is LM Studio running? Start the local server in the LM Studio app.",
+        "jan":          "Is Jan running? Start the local server in the Jan app.",
+        "openaicompat": "Is your local server running on the configured port?",
+    }
+    hint = hints.get(llm_type, "Is the local LLM server running?")
+
+    response = await client.post(url, headers=headers, json=body)
+    _raise_with_detail(response, hint=hint)
+    return response.json()["choices"][0]["message"]["content"]
+
+
+def _raise_with_detail(response: httpx.Response, hint: str = "") -> None:
+    """Raise HTTPException with a human-readable message on API errors."""
+    if response.is_success:
+        return
+    try:
+        detail = response.json()
+    except Exception:
+        detail = response.text
+
+    msg = f"Provider returned HTTP {response.status_code}: {detail}"
+    if hint:
+        msg += f"\n\nHint: {hint}"
+    raise HTTPException(status_code=502, detail=msg)
     global embedding_model, chroma_client, collection
     
     if embedding_model is None:
@@ -177,125 +352,6 @@ def delete_file_from_index(file_path: str):
         pass
 
 
-async def call_provider(config: ProviderConfig, messages: List[Dict[str, str]]) -> str:
-    provider = config.provider.lower()
-    
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        if provider == "anthropic":
-            headers = {
-                "x-api-key": config.api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json"
-            }
-            
-            # Convert messages format
-            anthropic_messages = []
-            system_content = ""
-            
-            for msg in messages:
-                if msg["role"] == "system":
-                    system_content = msg["content"]
-                else:
-                    anthropic_messages.append({
-                        "role": msg["role"],
-                        "content": msg["content"]
-                    })
-            
-            body = {
-                "model": config.model,
-                "messages": anthropic_messages,
-                "max_tokens": 4096,
-                "temperature": config.temperature
-            }
-            
-            if system_content:
-                body["system"] = system_content
-            
-            url = f"{config.base_url}/v1/messages"
-            response = await client.post(url, headers=headers, json=body)
-            response.raise_for_status()
-            data = response.json()
-            return data["content"][0]["text"]
-        
-        elif provider in ["openai", "mistral", "custom", "local"]:
-            headers = {
-                "Content-Type": "application/json"
-            }
-            
-            if config.api_key:
-                headers["Authorization"] = f"Bearer {config.api_key}"
-            
-            body = {
-                "model": config.model,
-                "messages": messages,
-                "temperature": config.temperature
-            }
-            
-            if provider == "local":
-                # Try llama.cpp first, then Ollama
-                if "8080" in config.base_url:
-                    url = f"{config.base_url}/v1/chat/completions"
-                else:
-                    url = f"{config.base_url}/api/chat"
-                    body = {
-                        "model": config.model,
-                        "messages": messages,
-                        "stream": False
-                    }
-            else:
-                url = f"{config.base_url}/v1/chat/completions"
-            
-            response = await client.post(url, headers=headers, json=body)
-            response.raise_for_status()
-            data = response.json()
-            
-            if provider == "local" and "11434" in config.base_url:
-                return data["message"]["content"]
-            else:
-                return data["choices"][0]["message"]["content"]
-        
-        elif provider == "google":
-            # Gemini API
-            headers = {
-                "Content-Type": "application/json"
-            }
-            
-            url = f"{config.base_url}/v1beta/models/{config.model}:generateContent?key={config.api_key}"
-            
-            # Convert messages to Gemini format
-            contents = []
-            system_instruction = ""
-            
-            for msg in messages:
-                if msg["role"] == "system":
-                    system_instruction = msg["content"]
-                else:
-                    role = "user" if msg["role"] == "user" else "model"
-                    contents.append({
-                        "role": role,
-                        "parts": [{"text": msg["content"]}]
-                    })
-            
-            body = {
-                "contents": contents,
-                "generationConfig": {
-                    "temperature": config.temperature,
-                    "maxOutputTokens": 4096
-                }
-            }
-            
-            if system_instruction:
-                body["systemInstruction"] = {
-                    "parts": [{"text": system_instruction}]
-                }
-            
-            response = await client.post(url, headers=headers, json=body)
-            response.raise_for_status()
-            data = response.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        
-        else:
-            raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
 
 
 @app.on_event("startup")
@@ -440,7 +496,8 @@ async def query_endpoint(req: QueryRequest):
             base_url=req.base_url,
             api_key=req.api_key,
             model=req.model,
-            temperature=req.temperature
+            temperature=req.temperature,
+            local_llm_type=req.local_llm_type,
         )
         
         answer = await call_provider(provider_config, messages)
