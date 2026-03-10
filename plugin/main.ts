@@ -84,6 +84,7 @@ class RAGChatView extends ItemView {
 	}
 
 	async onOpen(): Promise<void> {
+		await Promise.resolve();
 		const container = this.containerEl.children[1];
 		container.empty();
 		container.addClass('rag-chat-view');
@@ -144,7 +145,7 @@ class RAGChatView extends ItemView {
 		const isLocal = this.plugin.settings.provider === 'local';
 		const providerInfo = PROVIDERS[this.plugin.settings.provider];
 		if (!isLocal && providerInfo?.needsKey && !this.plugin.settings.apiKey) {
-			new Notice('Please configure an API key in Settings → RAG Chat');
+			new Notice('Please configure an API key in Settings → RAG chat');
 			return;
 		}
 
@@ -292,7 +293,7 @@ export default class RAGChatPlugin extends Plugin {
 		);
 
 		// Add ribbon icon
-		this.addRibbonIcon('message-circle', 'Open RAG Chat', () => {
+		this.addRibbonIcon('message-circle', 'Open chat', () => {
 			void this.activateView();
 		});
 
@@ -454,7 +455,7 @@ class RAGChatSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		// Use Setting heading instead of raw h2/h3 elements
-		new Setting(containerEl).setName('RAG Chat settings').setHeading();
+		new Setting(containerEl).setName('Configuration').setHeading();
 
 		// ── Backend ──────────────────────────────────────────────────────────
 		new Setting(containerEl).setName('Backend').setHeading();
@@ -562,7 +563,7 @@ class RAGChatSettingTab extends PluginSettingTab {
 
 		// ── Local LLM ────────────────────────────────────────────────────────
 		if (isLocal) {
-			new Setting(containerEl).setName('Local LLM settings').setHeading();
+			new Setting(containerEl).setName('Local LLM').setHeading();
 
 			new Setting(containerEl)
 				.setName('Local LLM type')
