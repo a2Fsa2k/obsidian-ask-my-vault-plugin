@@ -1,175 +1,90 @@
-Obsidian RAG Chat Plugin
-========================
+# RAG Chat
 
-A retrieval-augmented generation system that lets you chat with your Obsidian vault using any LLM provider. Built following Unix philosophy: do one thing well.
+Chat with your Obsidian vault using any AI provider. Ask questions in natural language and get answers grounded in your actual notes, with clickable source citations.
 
-What is this?
--------------
+**No Python backend, no external server, no setup required.** Everything runs inside Obsidian.
 
-This plugin turns your Obsidian notes into a searchable knowledge base. Ask questions in natural language, get answers backed by your actual notes with source citations. Click a source to jump straight to that note.
+## How it works
 
-The system consists of two parts:
-- Backend: FastAPI server handling vector search and LLM calls
-- Frontend: Obsidian plugin providing the chat interface
+1. When the plugin loads it indexes all your markdown notes using a built-in BM25 full-text search engine — no embeddings, no external model, no network calls for indexing.
+2. When you ask a question, the top matching note chunks are retrieved and sent as context to your chosen LLM.
+3. The answer is displayed in a chat panel alongside clickable source citations that open the referenced note.
+4. The index stays up to date automatically as you create, edit, rename or delete notes.
 
-Architecture
-------------
+## Supported AI providers
 
-The backend uses sentence-transformers for embeddings (all-MiniLM-L6-v2) and ChromaDB for vector storage. Files are chunked semantically, hashed for incremental updates, and indexed automatically on modification.
+| Provider | Notes |
+|---|---|
+| OpenAI | GPT-4o, GPT-4, GPT-3.5, etc. |
+| Anthropic | Claude 3.5 Sonnet, Claude 3, etc. |
+| Google | Gemini 2.0 Flash, Gemini 1.5, etc. |
+| Mistral | Mistral Large, Mistral Small, etc. |
+| Groq | Fast inference for Llama, Mixtral, etc. |
+| xAI | Grok |
+| DeepSeek | DeepSeek Chat, DeepSeek Coder |
+| Cohere | Command R+ |
+| Together AI | Open-source models |
+| Perplexity | Sonar models |
+| Ollama | Local — llama3, mistral, phi3, etc. |
+| llama.cpp | Local — any GGUF model |
+| LM Studio | Local — any model |
+| Jan | Local — any model |
+| Custom | Any OpenAI-compatible API |
 
-The frontend watches vault changes and keeps the index synchronized. When you ask a question, it retrieves relevant chunks, sends them with your question to your chosen LLM, and displays the response with clickable source citations.
+## Installation
 
-Supported LLM Providers
------------------------
+Install via Obsidian's Community Plugins browser:
 
-- OpenAI (GPT-4, GPT-3.5, etc.)
-- Anthropic (Claude)
-- Google (Gemini)
-- Mistral
-- Any OpenAI-compatible API
-- Local LLMs (llama.cpp, Ollama)
+1. Open **Settings → Community plugins**
+2. Disable **Restricted mode** if enabled
+3. Click **Browse** and search for **RAG Chat**
+4. Click **Install**, then **Enable**
 
-Installation
-------------
+## Setup
 
-### Prerequisites
+1. Open **Settings → RAG Chat**
+2. Select your **provider** from the dropdown
+3. Enter your **API key** (not required for local providers)
+4. Check the **data consent** toggle
+5. The plugin will automatically index your vault on first load
 
-Python 3.10+ and Node.js 18+
+## Usage
 
-### Backend Setup
+- Click the **chat icon** (💬) in the left ribbon to open the chat panel
+- Type a question and press **Enter** (or **Shift+Enter** for a new line)
+- Click any source citation to jump directly to that note
+- Use **Settings → Rebuild index** if you ever need to force a full re-index
 
-1. Install Python dependencies:
+## Privacy
 
-   cd backend
-   pip install -r requirements.txt
+- **Indexing is fully local.** Note content is tokenised and stored on-device only; nothing is sent to any server during indexing.
+- **Your notes are sent to your chosen LLM provider** when you ask a question (only the top matching chunks, not your entire vault). If this concerns you, use a local provider such as Ollama.
+- API keys are stored in Obsidian's plugin data folder on your device.
 
-2. Start the server:
+## Local LLM (no API key needed)
 
-   python main.py
+Select **Local LLM** as the provider, choose your server type (Ollama, llama.cpp, LM Studio, Jan, or other OpenAI-compatible), enter the server URL and model name, and you're done. No API key required.
 
-The server runs on http://localhost:8000 by default.
+Quick start with Ollama:
 
-### Plugin Setup
+```
+ollama serve
+ollama pull llama3
+```
 
-1. Build the plugin:
+Then set provider → Local LLM, type → Ollama, URL → `http://localhost:11434`, model → `llama3`.
 
-   cd plugin
-   npm install
-   npm run build
+## Troubleshooting
 
-2. Copy built files to your Obsidian vault:
+**No results / poor answers**
+Go to Settings → RAG Chat and click **Rebuild index**. This re-indexes all notes from scratch.
 
-   mkdir -p /path/to/your/vault/.obsidian/plugins/obsidian-rag-chat
-   cp main.js manifest.json styles.css /path/to/your/vault/.obsidian/plugins/obsidian-rag-chat/
+**API errors**
+Check that your API key is correct and the selected model name matches what your provider offers.
 
-3. In Obsidian:
-   - Settings > Community Plugins
-   - Disable "Restricted mode" if enabled
-   - Enable "RAG Chat" plugin
+**Local LLM not reachable**
+Use the **Test** button in settings to verify the server URL. Make sure your local server is running before sending a message.
 
-### Configuration
+## License
 
-1. Open plugin settings
-2. Select your AI provider
-3. Enter your API key
-4. Enter the model name (e.g., gpt-4, claude-3-opus-20240229, gemini-2.0-flash-exp)
-5. Optionally customize system prompt and temperature
-6. Check the consent box
-7. Click "Rebuild Index" to index your vault
-
-Usage
------
-
-Click the chat icon in the left ribbon to open the chat panel. Type your question and press Enter or click Send.
-
-The system automatically:
-- Indexes new notes as you create them
-- Re-indexes notes when you modify them
-- Removes deleted notes from the index
-- Updates the index when you rename notes
-
-All indexing happens silently in the background. You only see notifications for initial indexing and manual rebuilds.
-
-Performance
------------
-
-Indexing is incremental. Files are hashed (SHA256) and only re-indexed if content changes. The system uses a 1-second debounce on file modifications to avoid hammering the backend.
-
-Vector search uses cosine similarity with a threshold of 1.6 (on a 0-2 scale). This filters out irrelevant results while keeping related content. Results are deduplicated by file to avoid showing multiple chunks from the same note.
-
-Local LLM Support
------------------
-
-For privacy or offline use, point the system at a local LLM:
-
-- llama.cpp server: http://localhost:8080
-- Ollama: http://localhost:11434
-
-Enable "Local LLM" in settings and no API key is required.
-
-Privacy
--------
-
-Your notes are sent to whatever LLM provider you configure. If this concerns you, use a local LLM. The backend never stores your notes permanently - only vector embeddings and file hashes.
-
-The embedding model (all-MiniLM-L6-v2) runs locally. Your notes are not sent anywhere for embedding.
-
-Development
------------
-
-Backend is a single Python file. Frontend is TypeScript compiled with esbuild. No frameworks, no unnecessary dependencies.
-
-To modify:
-1. Edit backend/main.py or plugin/main.ts
-2. Restart backend or rebuild plugin
-3. Reload plugin in Obsidian (Ctrl+R)
-
-File Structure
---------------
-
-backend/
-  main.py           - FastAPI server with RAG pipeline
-  requirements.txt  - Python dependencies
-  chroma_db/        - Vector database (generated)
-
-plugin/
-  main.ts           - Plugin source code
-  styles.css        - UI styling
-  manifest.json     - Plugin metadata
-  package.json      - Node dependencies
-  esbuild.config.mjs - Build configuration
-
-Troubleshooting
----------------
-
-Backend won't start:
-- Check Python version (3.10+)
-- Install dependencies: pip install -r requirements.txt
-- Check port 8000 is available
-
-Plugin doesn't appear:
-- Ensure files are in .obsidian/plugins/obsidian-rag-chat/
-- Check console (Ctrl+Shift+I) for errors
-- Verify "Restricted mode" is disabled
-
-Index not updating:
-- Check backend is running (http://localhost:8000/health)
-- Verify backend URL in plugin settings
-- Check file permissions on chroma_db directory
-
-No search results:
-- Click "Rebuild Index" in settings
-- Check backend logs for errors
-- Verify markdown files exist in vault
-
-License
--------
-
-MIT
-
-This is free software. Use it, modify it, break it, fix it. No warranties.
-
-Author
-------
-
-Built with the philosophy that software should be simple, direct, and do what it claims without magic or hidden complexity.
+MIT — see [LICENSE](LICENSE)
