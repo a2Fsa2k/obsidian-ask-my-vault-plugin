@@ -304,7 +304,7 @@ this.plugin = plugin;
 }
 
 getViewType(): string { return VIEW_TYPE_RAG_CHAT; }
-getDisplayText(): string { return 'RAG Chat'; }
+getDisplayText(): string { return 'RAG chat'; }
 getIcon(): string { return 'message-circle'; }
 
 async onOpen(): Promise<void> {
