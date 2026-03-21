@@ -1,7 +1,7 @@
 import {
-App, Plugin, PluginSettingTab, Setting,
-WorkspaceLeaf, ItemView, MarkdownRenderer,
-TFile, Notice, requestUrl
+	App, Plugin, PluginSettingTab, Setting,
+	WorkspaceLeaf, ItemView, MarkdownRenderer,
+	TFile, Notice, requestUrl
 } from 'obsidian';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -304,7 +304,7 @@ this.plugin = plugin;
 }
 
 getViewType(): string { return VIEW_TYPE_RAG_CHAT; }
-getDisplayText(): string { return 'RAG chat'; }
+getDisplayText(): string { return 'RAG Chat'; }
 getIcon(): string { return 'message-circle'; }
 
 async onOpen(): Promise<void> {
@@ -568,8 +568,8 @@ const providerInfo = PROVIDERS[this.plugin.settings.provider];
 
 if (!isLocal) {
 	new Setting(containerEl)
-		.setName('Base url')
-		.setDesc('API base url (auto-filled for known providers)')
+		.setName('Base URL')
+		.setDesc('API base URL (auto-filled for known providers)')
 		.addText(text => {
 			const t = text
 				.setPlaceholder('https://api.openai.com')
@@ -601,10 +601,10 @@ if (!isLocal) {
 }
 
 if (isLocal) {
-	new Setting(containerEl).setName('Local llm').setHeading();
+	new Setting(containerEl).setName('Local LLM').setHeading();
 
 	new Setting(containerEl)
-		.setName('Local llm type')
+		.setName('Local LLM type')
 		.setDesc('Which local server are you running?')
 		.addDropdown(dropdown => {
 			for (const [key, info] of Object.entries(LOCAL_LLM_TYPES)) dropdown.addOption(key, info.label);
@@ -632,14 +632,14 @@ if (isLocal) {
 
 	new Setting(containerEl)
 		.setName('Model name')
-		.setDesc('Model to use (e.g. llama3, mistral, phi3)')
+		.setDesc('Model to use (e.g., llama3, mistral, phi3)')
 		.addText(text => text
 			.setPlaceholder(localInfo?.defaultModel ?? 'llama3')
 			.setValue(this.plugin.settings.localLlmModel)
 			.onChange(async (value) => { this.plugin.settings.localLlmModel = value.trim(); await this.plugin.saveSettings(); }));
 
 	new Setting(containerEl)
-		.setName('Test local llm')
+		.setName('Test local LLM')
 		.setDesc('Check if the local server is reachable')
 		.addButton(button => button.setButtonText('Test').onClick(async () => {
 			button.setDisabled(true);
