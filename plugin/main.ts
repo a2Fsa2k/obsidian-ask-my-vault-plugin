@@ -73,16 +73,16 @@ const PROVIDERS: Record<string, { url: string; model: string; label: string; nee
 'cohere':     { url: 'https://api.cohere.com',                    model: 'command-r-plus-08-2024',             label: 'Cohere',                needsKey: true  },
 'together':   { url: 'https://api.together.xyz',                  model: 'meta-llama/Llama-3-70b-chat-hf',    label: 'Together AI',           needsKey: true  },
 'perplexity': { url: 'https://api.perplexity.ai',                 model: 'llama-3.1-sonar-large-128k-online', label: 'Perplexity',            needsKey: true  },
-'local':      { url: 'http://localhost:11434',                     model: 'llama3',                            label: 'Local LLM',             needsKey: false },
+'local':      { url: 'http://localhost:11434',                     model: 'llama3',                            label: 'Local llm',              needsKey: false },
 'custom':     { url: '',                                           model: '',                                  label: 'Custom (OpenAI-compat)', needsKey: false },
 };
 
 const LOCAL_LLM_TYPES: Record<string, { label: string; defaultUrl: string; defaultModel: string; hint: string }> = {
-'ollama':       { label: 'Ollama',               defaultUrl: 'http://localhost:11434', defaultModel: 'llama3', hint: 'Run: ollama serve'                             },
+'ollama':       { label: 'Ollama',                defaultUrl: 'http://localhost:11434', defaultModel: 'llama3', hint: 'Run: ollama serve' },
 'llamacpp':     { label: 'llama.cpp server',      defaultUrl: 'http://localhost:8080',  defaultModel: 'local',  hint: 'Run: ./llama-server -m model.gguf --port 8080' },
-'lmstudio':     { label: 'LM Studio',             defaultUrl: 'http://localhost:1234',  defaultModel: 'local',  hint: 'Start server in LM Studio app'                },
-'jan':          { label: 'Jan',                   defaultUrl: 'http://localhost:1337',  defaultModel: 'local',  hint: 'Start server in Jan app'                      },
-'openaicompat': { label: 'Other (OpenAI-compat)', defaultUrl: 'http://localhost:8080',  defaultModel: 'local',  hint: 'Any server with /v1/chat/completions'          },
+'lmstudio':     { label: 'LM Studio',             defaultUrl: 'http://localhost:1234',  defaultModel: 'local',  hint: 'Start server in LM Studio app' },
+'jan':          { label: 'Jan',                   defaultUrl: 'http://localhost:1337',  defaultModel: 'local',  hint: 'Start server in Jan app' },
+'openaicompat': { label: 'Other (OpenAI-compat)', defaultUrl: 'http://localhost:8080',  defaultModel: 'local',  hint: 'Any server with /v1/chat/completions' },
 };
 
 // ─── BM25 Search Engine ───────────────────────────────────────────────────────
@@ -545,160 +545,160 @@ new Setting(containerEl).setName('Configuration').setHeading();
 new Setting(containerEl).setName('AI provider').setHeading();
 
 new Setting(containerEl)
-.setName('Provider')
-.setDesc('Select the AI provider to use')
-.addDropdown(dropdown => {
-for (const [key, info] of Object.entries(PROVIDERS)) dropdown.addOption(key, info.label);
-dropdown.setValue(this.plugin.settings.provider);
-dropdown.onChange(async (value) => {
-this.plugin.settings.provider = value;
-if (value !== 'custom' && value !== 'local') {
-this.plugin.settings.baseUrl = PROVIDERS[value].url;
-this.plugin.settings.model = PROVIDERS[value].model;
-}
-await this.plugin.saveSettings();
-this.display();
-});
-return dropdown;
-});
+	.setName('Provider')
+	.setDesc('Select the AI provider to use')
+	.addDropdown(dropdown => {
+		for (const [key, info] of Object.entries(PROVIDERS)) dropdown.addOption(key, info.label);
+		dropdown.setValue(this.plugin.settings.provider);
+		dropdown.onChange(async (value) => {
+			this.plugin.settings.provider = value;
+			if (value !== 'custom' && value !== 'local') {
+				this.plugin.settings.baseUrl = PROVIDERS[value].url;
+				this.plugin.settings.model = PROVIDERS[value].model;
+			}
+			await this.plugin.saveSettings();
+			this.display();
+		});
+		return dropdown;
+	});
 
 const isLocal = this.plugin.settings.provider === 'local';
 const isCustom = this.plugin.settings.provider === 'custom';
 const providerInfo = PROVIDERS[this.plugin.settings.provider];
 
 if (!isLocal) {
-new Setting(containerEl)
-.setName('Base URL')
-.setDesc('API base URL (auto-filled for known providers)')
-.addText(text => {
-const t = text
-.setPlaceholder('https://api.openai.com')
-.setValue(this.plugin.settings.baseUrl)
-.onChange(async (value) => { this.plugin.settings.baseUrl = value.trim(); await this.plugin.saveSettings(); });
-if (!isCustom) t.setDisabled(true);
-return t;
-});
+	new Setting(containerEl)
+		.setName('Base url')
+		.setDesc('API base url (auto-filled for known providers)')
+		.addText(text => {
+			const t = text
+				.setPlaceholder('https://api.openai.com')
+				.setValue(this.plugin.settings.baseUrl)
+				.onChange(async (value) => { this.plugin.settings.baseUrl = value.trim(); await this.plugin.saveSettings(); });
+			if (!isCustom) t.setDisabled(true);
+			return t;
+		});
 
-if (isCustom || providerInfo?.needsKey) {
-new Setting(containerEl)
-.setName('API key')
-.setDesc('Your API key for the selected provider')
-.addText(text => {
-text.setPlaceholder('sk-...').setValue(this.plugin.settings.apiKey)
-.onChange(async (value) => { this.plugin.settings.apiKey = value.trim(); await this.plugin.saveSettings(); });
-text.inputEl.type = 'password';
-return text;
-});
-}
+	if (isCustom || providerInfo?.needsKey) {
+		new Setting(containerEl)
+			.setName('API key')
+			.setDesc('Your API key for the selected provider')
+			.addText(text => {
+				text.setPlaceholder('sk-...').setValue(this.plugin.settings.apiKey)
+					.onChange(async (value) => { this.plugin.settings.apiKey = value.trim(); await this.plugin.saveSettings(); });
+				text.inputEl.type = 'password';
+				return text;
+			});
+	}
 
-new Setting(containerEl)
-.setName('Model')
-.setDesc('Model name (auto-filled, change as needed)')
-.addText(text => text
-.setPlaceholder(providerInfo?.model ?? 'model-name')
-.setValue(this.plugin.settings.model)
-.onChange(async (value) => { this.plugin.settings.model = value.trim(); await this.plugin.saveSettings(); }));
+	new Setting(containerEl)
+		.setName('Model')
+		.setDesc('Model name (auto-filled, change as needed)')
+		.addText(text => text
+			.setPlaceholder(providerInfo?.model ?? 'model-name')
+			.setValue(this.plugin.settings.model)
+			.onChange(async (value) => { this.plugin.settings.model = value.trim(); await this.plugin.saveSettings(); }));
 }
 
 if (isLocal) {
-new Setting(containerEl).setName('Local LLM').setHeading();
+	new Setting(containerEl).setName('Local llm').setHeading();
 
-new Setting(containerEl)
-.setName('Local LLM type')
-.setDesc('Which local server are you running?')
-.addDropdown(dropdown => {
-for (const [key, info] of Object.entries(LOCAL_LLM_TYPES)) dropdown.addOption(key, info.label);
-dropdown.setValue(this.plugin.settings.localLlmType);
-dropdown.onChange(async (value) => {
-this.plugin.settings.localLlmType = value;
-this.plugin.settings.localLlmUrl = LOCAL_LLM_TYPES[value].defaultUrl;
-this.plugin.settings.localLlmModel = LOCAL_LLM_TYPES[value].defaultModel;
-await this.plugin.saveSettings();
-this.display();
-});
-return dropdown;
-});
+	new Setting(containerEl)
+		.setName('Local llm type')
+		.setDesc('Which local server are you running?')
+		.addDropdown(dropdown => {
+			for (const [key, info] of Object.entries(LOCAL_LLM_TYPES)) dropdown.addOption(key, info.label);
+			dropdown.setValue(this.plugin.settings.localLlmType);
+			dropdown.onChange(async (value) => {
+				this.plugin.settings.localLlmType = value;
+				this.plugin.settings.localLlmUrl = LOCAL_LLM_TYPES[value].defaultUrl;
+				this.plugin.settings.localLlmModel = LOCAL_LLM_TYPES[value].defaultModel;
+				await this.plugin.saveSettings();
+				this.display();
+			});
+			return dropdown;
+		});
 
-const localInfo = LOCAL_LLM_TYPES[this.plugin.settings.localLlmType];
-if (localInfo) new Setting(containerEl).setName('Setup hint').setDesc(`💡 ${localInfo.hint}`);
+	const localInfo = LOCAL_LLM_TYPES[this.plugin.settings.localLlmType];
+	if (localInfo) new Setting(containerEl).setName('Setup hint').setDesc(`💡 ${localInfo.hint}`);
 
-new Setting(containerEl)
-.setName('Local server URL')
-.setDesc('Full URL including port')
-.addText(text => text
-.setPlaceholder(localInfo?.defaultUrl ?? 'http://localhost:11434')
-.setValue(this.plugin.settings.localLlmUrl)
-.onChange(async (value) => { this.plugin.settings.localLlmUrl = value.trim(); await this.plugin.saveSettings(); }));
+	new Setting(containerEl)
+		.setName('Local server url')
+		.setDesc('Full URL including port')
+		.addText(text => text
+			.setPlaceholder(localInfo?.defaultUrl ?? 'http://localhost:11434')
+			.setValue(this.plugin.settings.localLlmUrl)
+			.onChange(async (value) => { this.plugin.settings.localLlmUrl = value.trim(); await this.plugin.saveSettings(); }));
 
-new Setting(containerEl)
-.setName('Model name')
-.setDesc('Model to use (e.g. llama3, mistral, phi3)')
-.addText(text => text
-.setPlaceholder(localInfo?.defaultModel ?? 'llama3')
-.setValue(this.plugin.settings.localLlmModel)
-.onChange(async (value) => { this.plugin.settings.localLlmModel = value.trim(); await this.plugin.saveSettings(); }));
+	new Setting(containerEl)
+		.setName('Model name')
+		.setDesc('Model to use (e.g. llama3, mistral, phi3)')
+		.addText(text => text
+			.setPlaceholder(localInfo?.defaultModel ?? 'llama3')
+			.setValue(this.plugin.settings.localLlmModel)
+			.onChange(async (value) => { this.plugin.settings.localLlmModel = value.trim(); await this.plugin.saveSettings(); }));
 
-new Setting(containerEl)
-.setName('Test local LLM')
-.setDesc('Check if the local server is reachable')
-.addButton(button => button.setButtonText('Test').onClick(async () => {
-button.setDisabled(true);
-const url = this.plugin.settings.localLlmUrl;
-const hint = LOCAL_LLM_TYPES[this.plugin.settings.localLlmType]?.hint ?? '';
-try {
-let reachable = false;
-for (const ep of ['/api/tags', '/v1/models', '/health']) {
-try {
-const r = await requestUrl({ url: url + ep, throw: false });
-if (r.status < 500) { reachable = true; break; }
-} catch { /* try next */ }
-}
-new Notice(reachable ? `✅ Local LLM reachable at ${url}` : `❌ Not responding at ${url}\n\n${hint}`);
-} catch {
-new Notice(`❌ Cannot reach ${url}`);
-} finally {
-button.setDisabled(false);
-}
-}));
+	new Setting(containerEl)
+		.setName('Test local llm')
+		.setDesc('Check if the local server is reachable')
+		.addButton(button => button.setButtonText('Test').onClick(async () => {
+			button.setDisabled(true);
+			const url = this.plugin.settings.localLlmUrl;
+			const hint = LOCAL_LLM_TYPES[this.plugin.settings.localLlmType]?.hint ?? '';
+			try {
+				let reachable = false;
+				for (const ep of ['/api/tags', '/v1/models', '/health']) {
+					try {
+						const r = await requestUrl({ url: url + ep, throw: false });
+						if (r.status < 500) { reachable = true; break; }
+					} catch { /* try next */ }
+				}
+				new Notice(reachable ? `✅ Local LLM reachable at ${url}` : `❌ Not responding at ${url}\n\n${hint}`);
+			} catch {
+				new Notice(`❌ Cannot reach ${url}`);
+			} finally {
+				button.setDisabled(false);
+			}
+		}));
 }
 
 new Setting(containerEl).setName('Generation').setHeading();
 
 new Setting(containerEl)
-.setName('Temperature')
-.setDesc('Controls randomness: 0 = focused, 1 = creative')
-.addSlider(slider => slider.setLimits(0, 1, 0.1).setValue(this.plugin.settings.temperature).setDynamicTooltip()
-.onChange(async (value) => { this.plugin.settings.temperature = value; await this.plugin.saveSettings(); }));
+	.setName('Temperature')
+	.setDesc('Controls randomness: 0 = focused, 1 = creative')
+	.addSlider(slider => slider.setLimits(0, 1, 0.1).setValue(this.plugin.settings.temperature).setDynamicTooltip()
+		.onChange(async (value) => { this.plugin.settings.temperature = value; await this.plugin.saveSettings(); }));
 
 new Setting(containerEl)
-.setName('System prompt')
-.setDesc('Instructions for the AI assistant')
-.addTextArea(text => text
-.setPlaceholder('You are a helpful assistant...')
-.setValue(this.plugin.settings.systemPrompt)
-.onChange(async (value) => { this.plugin.settings.systemPrompt = value; await this.plugin.saveSettings(); })
-.inputEl.rows = 4);
+	.setName('System prompt')
+	.setDesc('Instructions for the AI assistant')
+	.addTextArea(text => text
+		.setPlaceholder('You are a helpful assistant...')
+		.setValue(this.plugin.settings.systemPrompt)
+		.onChange(async (value) => { this.plugin.settings.systemPrompt = value; await this.plugin.saveSettings(); })
+		.inputEl.rows = 4);
 
 new Setting(containerEl).setName('Privacy & index').setHeading();
 
 new Setting(containerEl)
-.setName('Data consent')
-.setDesc('I understand that my vault content may be sent to external AI APIs when using cloud providers')
-.addToggle(toggle => toggle.setValue(this.plugin.settings.consentGiven)
-.onChange(async (value) => { this.plugin.settings.consentGiven = value; await this.plugin.saveSettings(); }));
+	.setName('Data consent')
+	.setDesc('I understand that my vault content may be sent to external AI APIs when using cloud providers')
+	.addToggle(toggle => toggle.setValue(this.plugin.settings.consentGiven)
+		.onChange(async (value) => { this.plugin.settings.consentGiven = value; await this.plugin.saveSettings(); }));
 
 new Setting(containerEl).setName('Index status').setDesc(`${this.plugin.index.size} notes indexed`);
 
 new Setting(containerEl)
-.setName('Rebuild index')
-.setDesc('Re-index all notes in your vault (safe to run at any time)')
-.addButton(button => button.setButtonText('Rebuild').onClick(async () => {
-button.setDisabled(true);
-button.setButtonText('Rebuilding...');
-await this.plugin.rebuildIndex();
-button.setDisabled(false);
-button.setButtonText('Rebuild');
-this.display();
-}));
+	.setName('Rebuild index')
+	.setDesc('Re-index all notes in your vault (safe to run at any time)')
+	.addButton(button => button.setButtonText('Rebuild').onClick(async () => {
+		button.setDisabled(true);
+		button.setButtonText('Rebuilding...');
+		await this.plugin.rebuildIndex();
+		button.setDisabled(false);
+		button.setButtonText('Rebuild');
+		this.display();
+	}));
 }
 }
