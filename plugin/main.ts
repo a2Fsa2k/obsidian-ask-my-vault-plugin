@@ -304,7 +304,7 @@ this.plugin = plugin;
 }
 
 getViewType(): string { return VIEW_TYPE_RAG_CHAT; }
-getDisplayText(): string { return 'RAG Chat'; }
+getDisplayText(): string { return 'RAG chat'; }
 getIcon(): string { return 'message-circle'; }
 
 async onOpen(): Promise<void> {
@@ -584,7 +584,7 @@ if (!isLocal) {
 			.setName('API key')
 			.setDesc('Your API key for the selected provider')
 			.addText(text => {
-				text.setPlaceholder('sk-...').setValue(this.plugin.settings.apiKey)
+				text.setPlaceholder('Enter API key').setValue(this.plugin.settings.apiKey)
 					.onChange(async (value) => { this.plugin.settings.apiKey = value.trim(); await this.plugin.saveSettings(); });
 				text.inputEl.type = 'password';
 				return text;
@@ -601,10 +601,10 @@ if (!isLocal) {
 }
 
 if (isLocal) {
-	new Setting(containerEl).setName('Local LLM').setHeading();
+	new Setting(containerEl).setName('Local model').setHeading();
 
 	new Setting(containerEl)
-		.setName('Local LLM type')
+		.setName('Local model type')
 		.setDesc('Which local server are you running?')
 		.addDropdown(dropdown => {
 			for (const [key, info] of Object.entries(LOCAL_LLM_TYPES)) dropdown.addOption(key, info.label);
@@ -623,7 +623,7 @@ if (isLocal) {
 	if (localInfo) new Setting(containerEl).setName('Setup hint').setDesc(`💡 ${localInfo.hint}`);
 
 	new Setting(containerEl)
-		.setName('Local server url')
+		.setName('Local server address')
 		.setDesc('Full URL including port')
 		.addText(text => text
 			.setPlaceholder(localInfo?.defaultUrl ?? 'http://localhost:11434')
@@ -639,7 +639,7 @@ if (isLocal) {
 			.onChange(async (value) => { this.plugin.settings.localLlmModel = value.trim(); await this.plugin.saveSettings(); }));
 
 	new Setting(containerEl)
-		.setName('Test local LLM')
+		.setName('Test local model')
 		.setDesc('Check if the local server is reachable')
 		.addButton(button => button.setButtonText('Test').onClick(async () => {
 			button.setDisabled(true);
