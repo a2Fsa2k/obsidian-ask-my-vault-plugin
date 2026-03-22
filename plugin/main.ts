@@ -304,7 +304,7 @@ this.plugin = plugin;
 }
 
 getViewType(): string { return VIEW_TYPE_RAG_CHAT; }
-getDisplayText(): string { return 'RAG chat'; }
+getDisplayText(): string { return 'Chat'; }
 getIcon(): string { return 'message-circle'; }
 
 async onOpen(): Promise<void> {
@@ -683,7 +683,7 @@ new Setting(containerEl).setName('Privacy & index').setHeading();
 
 new Setting(containerEl)
 	.setName('Data consent')
-	.setDesc('I understand that my vault content may be sent to external AI APIs when using cloud providers')
+	.setDesc('I understand my vault content may be sent to external providers')
 	.addToggle(toggle => toggle.setValue(this.plugin.settings.consentGiven)
 		.onChange(async (value) => { this.plugin.settings.consentGiven = value; await this.plugin.saveSettings(); }));
 
