@@ -1,10 +1,22 @@
 import {
 	App, Plugin, PluginSettingTab, Setting,
 	WorkspaceLeaf, ItemView, MarkdownRenderer,
-	TFile, Notice, requestUrl
+	TFile, Notice, requestUrl,
+	TextComponent, DropdownComponent, SliderComponent,
+	TextAreaComponent, ToggleComponent, ButtonComponent
 } from 'obsidian';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+interface QueryResponse {
+	answer?: string;
+	sources?: Array<{ file_path?: string; snippet?: string }>;
+}
+
+interface StatusResponse {
+	indexed_files?: number;
+	total_chunks?: number;
+}
 
 interface RAGChatSettings {
 provider: string;
@@ -293,412 +305,410 @@ this.avgChunkLen = totalChunks > 0 ? totalLen / totalChunks : 1;
 // ─── Chat View ────────────────────────────────────────────────────────────────
 
 class RAGChatView extends ItemView {
-plugin: RAGChatPlugin;
-messages: Message[] = [];
-inputEl: HTMLTextAreaElement;
-messagesContainer: HTMLElement;
+	plugin: RAGChatPlugin;
+	messages: Message[] = [];
+	inputEl: HTMLTextAreaElement;
+	messagesContainer: HTMLElement;
 
-constructor(leaf: WorkspaceLeaf, plugin: RAGChatPlugin) {
-super(leaf);
-this.plugin = plugin;
-}
+	constructor(leaf: WorkspaceLeaf, plugin: RAGChatPlugin) {
+		super(leaf);
+		this.plugin = plugin;
+	}
 
-getViewType(): string { return VIEW_TYPE_RAG_CHAT; }
-getDisplayText(): string { return 'Chat'; }
-getIcon(): string { return 'message-circle'; }
+	getViewType(): string { return VIEW_TYPE_RAG_CHAT; }
+	getDisplayText(): string { return 'Chat'; }
+	getIcon(): string { return 'message-circle'; }
 
-async onOpen(): Promise<void> {
-await Promise.resolve();
-const container = this.containerEl.children[1];
-container.empty();
-container.addClass('rag-chat-view');
+	async onOpen(): Promise<void> {
+		await Promise.resolve();
+		const container = this.containerEl.children[1] as HTMLElement;
+		container.empty();
+		container.addClass('rag-chat-view');
 
-this.messagesContainer = container.createDiv({ cls: 'rag-chat-messages' });
-const inputContainer = container.createDiv({ cls: 'rag-chat-input-container' });
-const inputWrapper = inputContainer.createDiv({ cls: 'rag-chat-input-wrapper' });
+		this.messagesContainer = container.createDiv({ cls: 'rag-chat-messages' });
+		const inputContainer = container.createDiv({ cls: 'rag-chat-input-container' });
+		const inputWrapper = inputContainer.createDiv({ cls: 'rag-chat-input-wrapper' });
 
-this.inputEl = inputWrapper.createEl('textarea', {
-cls: 'rag-chat-input',
-attr: { placeholder: 'Ask a question about your notes...', rows: '1' }
-});
-const sendButton = inputWrapper.createEl('button', { text: 'Send', cls: 'rag-chat-send-button' });
+		this.inputEl = inputWrapper.createEl('textarea', {
+			cls: 'rag-chat-input',
+			attr: { placeholder: 'Ask a question about your notes...', rows: '1' }
+		});
+		const sendButton = inputWrapper.createEl('button', { text: 'Send', cls: 'rag-chat-send-button' });
 
-this.inputEl.addEventListener('input', () => {
-this.inputEl.setCssProps({ '--rag-input-height': `${Math.min(this.inputEl.scrollHeight, 200)}px` });
-this.inputEl.addClass('rag-chat-input--resized');
-});
-sendButton.addEventListener('click', () => { void this.sendMessage(); });
-this.inputEl.addEventListener('keydown', (e) => {
-if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void this.sendMessage(); }
-});
+		this.inputEl.addEventListener('input', () => {
+			this.inputEl.setCssProps({ '--rag-input-height': `${Math.min(this.inputEl.scrollHeight, 200)}px` });
+			this.inputEl.addClass('rag-chat-input--resized');
+		});
+		sendButton.addEventListener('click', () => { void this.sendMessage(); });
+		this.inputEl.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void this.sendMessage(); }
+		});
 
-this.renderMessages();
-}
+		this.renderMessages();
+	}
 
-async onClose(): Promise<void> {
-return Promise.resolve();
-}
+	async onClose(): Promise<void> {
+		return Promise.resolve();
+	}
 
-async sendMessage(): Promise<void> {
-const question = this.inputEl.value.trim();
-if (!question) return;
+	async sendMessage(): Promise<void> {
+		const question = this.inputEl.value.trim();
+		if (!question) return;
 
-if (!this.plugin.settings.consentGiven) {
-new Notice('Please enable data consent in settings before chatting');
-return;
-}
-const isLocal = this.plugin.settings.provider === 'local';
-const providerInfo = PROVIDERS[this.plugin.settings.provider];
-if (!isLocal && providerInfo?.needsKey && !this.plugin.settings.apiKey) {
-new Notice('Please configure an API key in settings');
-return;
-}
+		if (!this.plugin.settings.consentGiven) {
+			new Notice('Please enable data consent in settings before chatting');
+			return;
+		}
+		const isLocal = this.plugin.settings.provider === 'local';
+		const providerInfo = PROVIDERS[this.plugin.settings.provider];
+		if (!isLocal && providerInfo?.needsKey && !this.plugin.settings.apiKey) {
+			new Notice('Please configure an API key in settings');
+			return;
+		}
 
-this.messages.push({ role: 'user', content: question });
-this.renderMessages();
-this.inputEl.value = '';
-this.inputEl.setCssProps({ '--rag-input-height': 'auto' });
-this.inputEl.removeClass('rag-chat-input--resized');
+		this.messages.push({ role: 'user', content: question });
+		this.renderMessages();
+		this.inputEl.value = '';
+		this.inputEl.setCssProps({ '--rag-input-height': 'auto' });
+		this.inputEl.removeClass('rag-chat-input--resized');
 
-this.messages.push({ role: 'assistant', content: '...' });
-this.renderMessages();
+		this.messages.push({ role: 'assistant', content: '...' });
+		this.renderMessages();
 
-try {
-const results = this.plugin.index.search(question);
-const context = results.length > 0
-? results.map((r, i) => `[${i + 1}] ${r.filePath}\n${r.snippet}`).join('\n\n')
-: 'No relevant notes found.';
+		try {
+			const results = this.plugin.index.search(question);
+			const context = results.length > 0
+				? results.map((r, i) => `[${i + 1}] ${r.filePath}\n${r.snippet}`).join('\n\n')
+				: 'No relevant notes found.';
 
-const answer = await callLLM(this.plugin.settings, [
-{ role: 'system', content: `${this.plugin.settings.systemPrompt}\n\nContext from vault:\n${context}` },
-{ role: 'user', content: question }
-]);
+			const answer = await callLLM(this.plugin.settings, [
+				{ role: 'system', content: `${this.plugin.settings.systemPrompt}\n\nContext from vault:\n${context}` },
+				{ role: 'user', content: question }
+			]);
 
-this.messages.pop();
-this.messages.push({ role: 'assistant', content: answer, sources: results });
-this.renderMessages();
-} catch (error: unknown) {
-this.messages.pop();
-const msg = error instanceof Error ? error.message : String(error);
-this.messages.push({ role: 'assistant', content: `Error: ${msg}` });
-this.renderMessages();
-new Notice(`Query failed: ${msg}`);
-}
-}
+			this.messages.pop();
+			this.messages.push({ role: 'assistant', content: answer, sources: results });
+			this.renderMessages();
+		} catch (error: unknown) {
+			this.messages.pop();
+			const msg = error instanceof Error ? error.message : String(error);
+			this.messages.push({ role: 'assistant', content: `Error: ${msg}` });
+			this.renderMessages();
+			new Notice(`Query failed: ${msg}`);
+		}
+	}
 
-renderMessages(): void {
-this.messagesContainer.empty();
+	renderMessages(): void {
+		this.messagesContainer.empty();
 
-if (this.messages.length === 0) {
-const empty = this.messagesContainer.createDiv({ cls: 'rag-chat-empty' });
-empty.createDiv({ cls: 'rag-chat-empty-icon', text: '💬' });
-empty.createDiv({ cls: 'rag-chat-empty-title', text: 'Start a conversation' });
-empty.createDiv({ cls: 'rag-chat-empty-subtitle', text: 'Ask questions about your notes and get AI-powered answers with sources.' });
-return;
-}
+		if (this.messages.length === 0) {
+			const empty = this.messagesContainer.createDiv({ cls: 'rag-chat-empty' });
+			empty.createDiv({ cls: 'rag-chat-empty-icon', text: '💬' });
+			empty.createDiv({ cls: 'rag-chat-empty-title', text: 'Start a conversation' });
+			empty.createDiv({ cls: 'rag-chat-empty-subtitle', text: 'Ask questions about your notes and get AI-powered answers with sources.' });
+			return;
+		}
 
-for (const msg of this.messages) {
-const msgDiv = this.messagesContainer.createDiv({ cls: `rag-chat-message ${msg.role}` });
-msgDiv.createDiv({ cls: 'rag-chat-avatar' }).setText(msg.role === 'user' ? '��' : '🤖');
-const contentWrapper = msgDiv.createDiv({ cls: 'rag-chat-content' });
-const bubble = contentWrapper.createDiv({ cls: 'rag-chat-bubble' });
+		for (const msg of this.messages) {
+			const msgDiv = this.messagesContainer.createDiv({ cls: `rag-chat-message ${msg.role}` });
+			msgDiv.createDiv({ cls: 'rag-chat-avatar' }).setText(msg.role === 'user' ? '��' : '🤖');
+			const contentWrapper = msgDiv.createDiv({ cls: 'rag-chat-content' });
+			const bubble = contentWrapper.createDiv({ cls: 'rag-chat-bubble' });
 
-if (msg.content === '...') {
-const loading = bubble.createDiv({ cls: 'rag-chat-loading' });
-for (let i = 0; i < 3; i++) loading.createDiv({ cls: 'rag-chat-loading-dot' });
-} else {
-void MarkdownRenderer.renderMarkdown(msg.content, bubble, '', this.plugin);
-}
+			if (msg.content === '...') {
+				const loading = bubble.createDiv({ cls: 'rag-chat-loading' });
+				for (let i = 0; i < 3; i++) loading.createDiv({ cls: 'rag-chat-loading-dot' });
+			} else {
+				void MarkdownRenderer.renderMarkdown(msg.content, bubble, '', this.plugin);
+			}
 
-if (msg.sources && msg.sources.length > 0) {
-const sourcesDiv = contentWrapper.createDiv({ cls: 'rag-chat-sources' });
-sourcesDiv.createDiv({ cls: 'rag-chat-source-label', text: '📚 Sources' });
-for (const source of msg.sources) {
-const item = sourcesDiv.createDiv({ cls: 'rag-chat-source-item' });
-item.createDiv({ cls: 'rag-chat-source-file', text: source.filePath.split('/').pop() ?? source.filePath });
-item.createDiv({ cls: 'rag-chat-source-snippet', text: source.snippet });
-item.addEventListener('click', () => { void this.openFile(source.filePath); });
-}
-}
-}
-this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
-}
+			if (msg.sources && msg.sources.length > 0) {
+				const sourcesDiv = contentWrapper.createDiv({ cls: 'rag-chat-sources' });
+				sourcesDiv.createDiv({ cls: 'rag-chat-source-label', text: '📚 Sources' });
+				for (const source of msg.sources) {
+					const item = sourcesDiv.createDiv({ cls: 'rag-chat-source-item' });
+					item.createDiv({ cls: 'rag-chat-source-file', text: source.filePath.split('/').pop() ?? source.filePath });
+					item.createDiv({ cls: 'rag-chat-source-snippet', text: source.snippet });
+					item.addEventListener('click', () => { void this.openFile(source.filePath); });
+				}
+			}
+		}
+		this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+	}
 
-async openFile(filePath: string): Promise<void> {
-const file = this.app.vault.getAbstractFileByPath(filePath);
-if (file instanceof TFile) {
-await this.app.workspace.getLeaf(false).openFile(file);
-} else {
-new Notice(`File not found: ${filePath}`);
-}
-}
+	async openFile(filePath: string): Promise<void> {
+		const file = this.app.vault.getAbstractFileByPath(filePath);
+		if (file instanceof TFile) {
+			await this.app.workspace.getLeaf(false).openFile(file);
+		} else {
+			new Notice(`File not found: ${filePath}`);
+		}
+	}
 }
 
 // ─── Plugin ───────────────────────────────────────────────────────────────────
 
 export default class RAGChatPlugin extends Plugin {
-settings: RAGChatSettings;
-index: VaultIndex;
-private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	settings: RAGChatSettings;
+	index: VaultIndex;
+	private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-async onload(): Promise<void> {
-await this.loadSettings();
-this.index = new VaultIndex(this);
-await this.index.load();
+	async onload(): Promise<void> {
+		await this.loadSettings();
+		this.index = new VaultIndex(this);
+		await this.index.load();
 
-this.registerView(VIEW_TYPE_RAG_CHAT, (leaf) => new RAGChatView(leaf, this));
-this.addRibbonIcon('message-circle', 'Open chat', () => { void this.activateView(); });
+		this.registerView(VIEW_TYPE_RAG_CHAT, (leaf) => new RAGChatView(leaf, this));
+		this.addRibbonIcon('message-circle', 'Open chat', () => { void this.activateView(); });
 
-this.addCommand({ id: 'open-view', name: 'Open chat view', callback: () => { void this.activateView(); } });
-this.addCommand({ id: 'rebuild-index', name: 'Rebuild vault index', callback: () => { void this.rebuildIndex(); } });
+		this.addCommand({ id: 'open-view', name: 'Open chat view', callback: () => { void this.activateView(); } });
+		this.addCommand({ id: 'rebuild-index', name: 'Rebuild vault index', callback: () => { void this.rebuildIndex(); } });
 
-this.addSettingTab(new RAGChatSettingTab(this.app, this));
+		this.addSettingTab(new RAGChatSettingTab(this.app, this));
 
-this.registerEvent(this.app.vault.on('modify', (file) => {
-if (file instanceof TFile && file.extension === 'md') this.scheduleIndex(file);
-}));
-this.registerEvent(this.app.vault.on('create', (file) => {
-if (file instanceof TFile && file.extension === 'md') this.scheduleIndex(file);
-}));
-this.registerEvent(this.app.vault.on('delete', (file) => {
-if (file instanceof TFile && file.extension === 'md') {
-this.index.removeFile(file.path);
-void this.index.save();
-}
-}));
-this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
-if (file instanceof TFile && file.extension === 'md') {
-this.index.removeFile(oldPath);
-this.scheduleIndex(file);
-}
-}));
+		this.registerEvent(this.app.vault.on('modify', (file) => {
+			if (file instanceof TFile && file.extension === 'md') this.scheduleIndex(file);
+		}));
+		this.registerEvent(this.app.vault.on('create', (file) => {
+			if (file instanceof TFile && file.extension === 'md') this.scheduleIndex(file);
+		}));
+		this.registerEvent(this.app.vault.on('delete', (file) => {
+			if (file instanceof TFile && file.extension === 'md') {
+				this.index.removeFile(file.path);
+				void this.index.save();
+			}
+		}));
+		this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+			if (file instanceof TFile && file.extension === 'md') {
+				this.index.removeFile(oldPath);
+				this.scheduleIndex(file);
+			}
+		}));
 
-void this.initialIndex();
-}
+		void this.initialIndex();
+	}
 
-async activateView(): Promise<void> {
-const { workspace } = this.app;
-let leaf = workspace.getLeavesOfType(VIEW_TYPE_RAG_CHAT)[0];
-if (!leaf) {
-const rightLeaf = workspace.getRightLeaf(false);
-if (rightLeaf) {
-await rightLeaf.setViewState({ type: VIEW_TYPE_RAG_CHAT, active: true });
-leaf = rightLeaf;
-}
-}
-if (leaf) workspace.revealLeaf(leaf);
-}
+	async activateView(): Promise<void> {
+		const { workspace } = this.app;
+		let leaf = workspace.getLeavesOfType(VIEW_TYPE_RAG_CHAT)[0];
+		if (!leaf) {
+			const rightLeaf = workspace.getRightLeaf(false);
+			if (rightLeaf) {
+				await rightLeaf.setViewState({ type: VIEW_TYPE_RAG_CHAT, active: true });
+				leaf = rightLeaf;
+			}
+		}
+		if (leaf) workspace.revealLeaf(leaf);
+	}
 
-scheduleIndex(file: TFile): void {
-if (this.debounceTimer) clearTimeout(this.debounceTimer);
-this.debounceTimer = setTimeout(() => {
-void (async () => {
-await this.index.indexFile(file);
-await this.index.save();
-})();
-}, 1000);
-}
+	scheduleIndex(file: TFile): void {
+		if (this.debounceTimer) clearTimeout(this.debounceTimer);
+		this.debounceTimer = setTimeout(() => {
+			void (async () => {
+				await this.index.indexFile(file);
+				await this.index.save();
+			})();
+		}, 1000);
+	}
 
-async initialIndex(): Promise<void> {
-const toIndex = this.app.vault.getMarkdownFiles().filter(f => this.index.needsReindex(f));
-if (toIndex.length === 0) return;
-new Notice(`Building search index for ${toIndex.length} notes...`);
-for (const file of toIndex) await this.index.indexFile(file);
-await this.index.save();
-new Notice(`✅ Index ready (${this.index.size} notes)`);
-}
+	async initialIndex(): Promise<void> {
+		const toIndex = this.app.vault.getMarkdownFiles().filter(f => this.index.needsReindex(f));
+		if (toIndex.length === 0) return;
+		new Notice(`Building search index for ${toIndex.length} notes...`);
+		for (const file of toIndex) await this.index.indexFile(file);
+		await this.index.save();
+		new Notice(`✅ Index ready (${this.index.size} notes)`);
+	}
 
-async rebuildIndex(): Promise<void> {
-const mdFiles = this.app.vault.getMarkdownFiles();
-new Notice(`Rebuilding index for ${mdFiles.length} notes...`);
-for (const file of mdFiles) await this.index.indexFile(file);
-await this.index.save();
-new Notice(`✅ Index rebuilt (${mdFiles.length} notes)`);
-}
+	async rebuildIndex(): Promise<void> {
+		const mdFiles = this.app.vault.getMarkdownFiles();
+		new Notice(`Rebuilding index for ${mdFiles.length} notes...`);
+		for (const file of mdFiles) await this.index.indexFile(file);
+		await this.index.save();
+		new Notice(`✅ Index rebuilt (${mdFiles.length} notes)`);
+	}
 
-async loadSettings(): Promise<void> {
-const data = await this.loadData();
-this.settings = Object.assign({}, DEFAULT_SETTINGS, data?.settings ?? {});
-}
+	async loadSettings(): Promise<void> {
+		const data = await this.loadData();
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, data?.settings ?? {});
+	}
 
-async saveSettings(): Promise<void> {
-const data = (await this.loadData()) ?? {};
-await this.saveData({ ...data, settings: this.settings });
-}
+	async saveSettings(): Promise<void> {
+		const data = (await this.loadData()) ?? {};
+		await this.saveData({ ...data, settings: this.settings });
+	}
 }
 
 // ─── Settings Tab ─────────────────────────────────────────────────────────────
 
 class RAGChatSettingTab extends PluginSettingTab {
-plugin: RAGChatPlugin;
+	plugin: RAGChatPlugin;
 
-constructor(app: App, plugin: RAGChatPlugin) {
-super(app, plugin);
-this.plugin = plugin;
-}
-
-display(): void {
-const { containerEl } = this;
-containerEl.empty();
-
-new Setting(containerEl).setName('Configuration').setHeading();
-new Setting(containerEl).setName('AI provider').setHeading();
-
-new Setting(containerEl)
-	.setName('Provider')
-	.setDesc('Select the AI provider to use')
-	.addDropdown(dropdown => {
-		for (const [key, info] of Object.entries(PROVIDERS)) dropdown.addOption(key, info.label);
-		dropdown.setValue(this.plugin.settings.provider);
-		dropdown.onChange(async (value) => {
-			this.plugin.settings.provider = value;
-			if (value !== 'custom' && value !== 'local') {
-				this.plugin.settings.baseUrl = PROVIDERS[value].url;
-				this.plugin.settings.model = PROVIDERS[value].model;
-			}
-			await this.plugin.saveSettings();
-			this.display();
-		});
-		return dropdown;
-	});
-
-const isLocal = this.plugin.settings.provider === 'local';
-const isCustom = this.plugin.settings.provider === 'custom';
-const providerInfo = PROVIDERS[this.plugin.settings.provider];
-
-if (!isLocal) {
-	new Setting(containerEl)
-		.setName('Base URL')
-		.setDesc('API base URL (auto-filled for known providers)')
-		.addText(text => {
-			const t = text
-				.setPlaceholder('https://api.openai.com')
-				.setValue(this.plugin.settings.baseUrl)
-				.onChange(async (value) => { this.plugin.settings.baseUrl = value.trim(); await this.plugin.saveSettings(); });
-			if (!isCustom) t.setDisabled(true);
-			return t;
-		});
-
-	if (isCustom || providerInfo?.needsKey) {
-		new Setting(containerEl)
-			.setName('API key')
-			.setDesc('Your API key for the selected provider')
-			.addText(text => {
-				text.setPlaceholder('Enter API key').setValue(this.plugin.settings.apiKey)
-					.onChange(async (value) => { this.plugin.settings.apiKey = value.trim(); await this.plugin.saveSettings(); });
-				text.inputEl.type = 'password';
-				return text;
-			});
+	constructor(app: App, plugin: RAGChatPlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
 	}
 
-	new Setting(containerEl)
-		.setName('Model')
-		.setDesc('Model name (auto-filled, change as needed)')
-		.addText(text => text
-			.setPlaceholder(providerInfo?.model ?? 'model-name')
-			.setValue(this.plugin.settings.model)
-			.onChange(async (value) => { this.plugin.settings.model = value.trim(); await this.plugin.saveSettings(); }));
-}
+	display(): void {
+		const { containerEl } = this;
+		containerEl.empty();
 
-if (isLocal) {
-	new Setting(containerEl).setName('Local model').setHeading();
+		new Setting(containerEl).setName('Configuration').setHeading();
+		new Setting(containerEl).setName('AI provider').setHeading();
 
-	new Setting(containerEl)
-		.setName('Local model type')
-		.setDesc('Which local server are you running?')
-		.addDropdown(dropdown => {
-			for (const [key, info] of Object.entries(LOCAL_LLM_TYPES)) dropdown.addOption(key, info.label);
-			dropdown.setValue(this.plugin.settings.localLlmType);
-			dropdown.onChange(async (value) => {
-				this.plugin.settings.localLlmType = value;
-				this.plugin.settings.localLlmUrl = LOCAL_LLM_TYPES[value].defaultUrl;
-				this.plugin.settings.localLlmModel = LOCAL_LLM_TYPES[value].defaultModel;
-				await this.plugin.saveSettings();
-				this.display();
+		new Setting(containerEl)
+			.setName('Provider')
+			.setDesc('Select the AI provider to use')
+			.addDropdown((dropdown: DropdownComponent) => {
+				for (const [key, info] of Object.entries(PROVIDERS)) dropdown.addOption(key, info.label);
+				dropdown.setValue(this.plugin.settings.provider);
+				dropdown.onChange(async (value) => {
+					this.plugin.settings.provider = value;
+					if (value !== 'custom' && value !== 'local') {
+						this.plugin.settings.baseUrl = PROVIDERS[value].url;
+						this.plugin.settings.model = PROVIDERS[value].model;
+					}
+					await this.plugin.saveSettings();
+					this.display();
+				});
+				return dropdown;
 			});
-			return dropdown;
-		});
 
-	const localInfo = LOCAL_LLM_TYPES[this.plugin.settings.localLlmType];
-	if (localInfo) new Setting(containerEl).setName('Setup hint').setDesc(`💡 ${localInfo.hint}`);
+		const isLocal = this.plugin.settings.provider === 'local';
+		const isCustom = this.plugin.settings.provider === 'custom';
+		const providerInfo = PROVIDERS[this.plugin.settings.provider];
 
-	new Setting(containerEl)
-		.setName('Local server address')
-		.setDesc('Full URL including port')
-		.addText(text => text
-			.setPlaceholder(localInfo?.defaultUrl ?? 'http://localhost:11434')
-			.setValue(this.plugin.settings.localLlmUrl)
-			.onChange(async (value) => { this.plugin.settings.localLlmUrl = value.trim(); await this.plugin.saveSettings(); }));
+		if (!isLocal) {
+			new Setting(containerEl)
+				.setName('Base URL')
+				.setDesc('API base URL (auto-filled for known providers)')
+				.addText((text: TextComponent) => {
+					const t = text
+						.setPlaceholder('https://api.openai.com')
+						.setValue(this.plugin.settings.baseUrl)
+						.onChange(async (value) => { this.plugin.settings.baseUrl = value.trim(); await this.plugin.saveSettings(); });
+					if (!isCustom) t.setDisabled(true);
+					return t;
+				});
 
-	new Setting(containerEl)
-		.setName('Model name')
-		.setDesc('Model to use (e.g., llama3, mistral, phi3)')
-		.addText(text => text
-			.setPlaceholder(localInfo?.defaultModel ?? 'llama3')
-			.setValue(this.plugin.settings.localLlmModel)
-			.onChange(async (value) => { this.plugin.settings.localLlmModel = value.trim(); await this.plugin.saveSettings(); }));
-
-	new Setting(containerEl)
-		.setName('Test local model')
-		.setDesc('Check if the local server is reachable')
-		.addButton(button => button.setButtonText('Test').onClick(async () => {
-			button.setDisabled(true);
-			const url = this.plugin.settings.localLlmUrl;
-			const hint = LOCAL_LLM_TYPES[this.plugin.settings.localLlmType]?.hint ?? '';
-			try {
-				let reachable = false;
-				for (const ep of ['/api/tags', '/v1/models', '/health']) {
-					try {
-						const r = await requestUrl({ url: url + ep, throw: false });
-						if (r.status < 500) { reachable = true; break; }
-					} catch { /* try next */ }
-				}
-				new Notice(reachable ? `✅ Local LLM reachable at ${url}` : `❌ Not responding at ${url}\n\n${hint}`);
-			} catch {
-				new Notice(`❌ Cannot reach ${url}`);
-			} finally {
-				button.setDisabled(false);
+			if (isCustom || providerInfo?.needsKey) {
+				new Setting(containerEl)
+					.setName('API key')
+					.setDesc('Your API key for the selected provider')
+					.addText((text: TextComponent) => {
+						text.setPlaceholder('Enter API key').setValue(this.plugin.settings.apiKey)
+							.onChange(async (value) => { this.plugin.settings.apiKey = value.trim(); await this.plugin.saveSettings(); });
+						text.inputEl.type = 'password';
+						return text;
+					});
 			}
-		}));
-}
 
-new Setting(containerEl).setName('Generation').setHeading();
+			new Setting(containerEl)
+				.setName('Model')
+				.setDesc('Model name (auto-filled, change as needed)')
+				.addText((text: TextComponent) => text
+					.setPlaceholder(providerInfo?.model ?? 'model-name')
+					.setValue(this.plugin.settings.model)
+					.onChange(async (value) => { this.plugin.settings.model = value.trim(); await this.plugin.saveSettings(); }));
+		}
 
-new Setting(containerEl)
-	.setName('Temperature')
-	.setDesc('Controls randomness: 0 = focused, 1 = creative')
-	.addSlider(slider => slider.setLimits(0, 1, 0.1).setValue(this.plugin.settings.temperature).setDynamicTooltip()
-		.onChange(async (value) => { this.plugin.settings.temperature = value; await this.plugin.saveSettings(); }));
+		if (isLocal) {
+			new Setting(containerEl).setName('Local model').setHeading();
 
-new Setting(containerEl)
-	.setName('System prompt')
-	.setDesc('Instructions for the AI assistant')
-	.addTextArea(text => text
-		.setPlaceholder('You are a helpful assistant...')
-		.setValue(this.plugin.settings.systemPrompt)
-		.onChange(async (value) => { this.plugin.settings.systemPrompt = value; await this.plugin.saveSettings(); })
-		.inputEl.rows = 4);
+			new Setting(containerEl)
+				.setName('Local model type')
+				.setDesc('Which local server are you running?')
+				.addDropdown((dropdown: DropdownComponent) => {
+					for (const [key, info] of Object.entries(LOCAL_LLM_TYPES)) dropdown.addOption(key, info.label);
+					dropdown.setValue(this.plugin.settings.localLlmType);
+					dropdown.onChange(async (value) => {
+						this.plugin.settings.localLlmType = value;
+						this.plugin.settings.localLlmUrl = LOCAL_LLM_TYPES[value].defaultUrl;
+						this.plugin.settings.localLlmModel = LOCAL_LLM_TYPES[value].defaultModel;
+						await this.plugin.saveSettings();
+						this.display();
+					});
+					return dropdown;
+				});
 
-new Setting(containerEl).setName('Privacy & index').setHeading();
+			const localInfo = LOCAL_LLM_TYPES[this.plugin.settings.localLlmType];
+			if (localInfo) new Setting(containerEl).setName('Setup hint').setDesc(`💡 ${localInfo.hint}`);
 
-new Setting(containerEl)
-	.setName('Data consent')
-	.setDesc('I understand my vault content may be sent to external providers')
-	.addToggle(toggle => toggle.setValue(this.plugin.settings.consentGiven)
-		.onChange(async (value) => { this.plugin.settings.consentGiven = value; await this.plugin.saveSettings(); }));
+			new Setting(containerEl)
+				.setName('Local server address')
+				.setDesc('Full URL including port')
+				.addText((text: TextComponent) => text
+					.setPlaceholder(localInfo?.defaultUrl ?? 'http://localhost:11434')
+					.setValue(this.plugin.settings.localLlmUrl)
+					.onChange(async (value) => { this.plugin.settings.localLlmUrl = value.trim(); await this.plugin.saveSettings(); }));
 
-new Setting(containerEl).setName('Index status').setDesc(`${this.plugin.index.size} notes indexed`);
+			new Setting(containerEl)
+				.setName('Model name')
+				.setDesc('Model to use (e.g., llama3, mistral, phi3)')
+				.addText((text: TextComponent) => text
+					.setPlaceholder(localInfo?.defaultModel ?? 'llama3')
+					.setValue(this.plugin.settings.localLlmModel)
+					.onChange(async (value) => { this.plugin.settings.localLlmModel = value.trim(); await this.plugin.saveSettings(); }));
 
-new Setting(containerEl)
-	.setName('Rebuild index')
-	.setDesc('Re-index all notes in your vault (safe to run at any time)')
-	.addButton(button => button.setButtonText('Rebuild').onClick(async () => {
-		button.setDisabled(true);
-		button.setButtonText('Rebuilding...');
-		await this.plugin.rebuildIndex();
-		button.setDisabled(false);
-		button.setButtonText('Rebuild');
-		this.display();
-	}));
-}
+			new Setting(containerEl)
+				.setName('Test local model')
+				.setDesc('Check if the local server is reachable')
+				.addButton((button: ButtonComponent) => button.setButtonText('Test').onClick(async () => {
+					button.setDisabled(true);
+					const url = this.plugin.settings.localLlmUrl;
+					const hint = LOCAL_LLM_TYPES[this.plugin.settings.localLlmType]?.hint ?? '';
+					try {
+						let reachable = false;
+						for (const ep of ['/api/tags', '/v1/models', '/health']) {
+							try {
+								const r = await requestUrl({ url: url + ep, throw: false });
+								if (r.status < 500) { reachable = true; break; }
+							} catch { /* try next */ }
+						}
+						new Notice(reachable ? `✅ Local LLM reachable at ${url}` : `❌ Not responding at ${url}\n\n${hint}`);
+					} catch {
+						new Notice(`❌ Cannot reach ${url}`);
+					} finally {
+						button.setDisabled(false);
+					}
+				}));
+		}
+
+		// Generation
+		new Setting(containerEl)
+			.setName('Temperature')
+			.setDesc('Controls randomness: 0 = focused, 1 = creative')
+			.addSlider((slider: SliderComponent) => slider.setLimits(0, 1, 0.1).setValue(this.plugin.settings.temperature).setDynamicTooltip()
+				.onChange(async (value) => { this.plugin.settings.temperature = value; await this.plugin.saveSettings(); }));
+
+		new Setting(containerEl)
+			.setName('System prompt')
+			.setDesc('Instructions for the AI assistant')
+			.addTextArea((text: TextAreaComponent) => {
+				text
+					.setPlaceholder('You are a helpful assistant...')
+					.setValue(this.plugin.settings.systemPrompt)
+					.onChange(async (value) => { this.plugin.settings.systemPrompt = value; await this.plugin.saveSettings(); });
+				text.inputEl.rows = 4;
+				return text;
+			});
+
+		new Setting(containerEl)
+			.setName('Data consent')
+			.setDesc('I understand my vault content may be sent to external providers')
+			.addToggle((toggle: ToggleComponent) => toggle.setValue(this.plugin.settings.consentGiven)
+				.onChange(async (value) => { this.plugin.settings.consentGiven = value; await this.plugin.saveSettings(); }));
+
+		new Setting(containerEl)
+			.setName('Rebuild index')
+			.setDesc('Re-index all notes in your vault (safe to run at any time)')
+			.addButton((button: ButtonComponent) => button.setButtonText('Rebuild').onClick(async () => {
+				button.setDisabled(true);
+				button.setButtonText('Rebuilding...');
+				await this.plugin.rebuildIndex();
+				button.setDisabled(false);
+				button.setButtonText('Rebuild');
+				this.display();
+			}));
+	}
 }
