@@ -1,7 +1,7 @@
 {
 	"id": "rag-chat",
 	"name": "RAG Chat",
-	"version": "1.1.0",
+	"version": "1.1.1",
 	"minAppVersion": "0.15.0",
 	"description": "Chat with your vault using local vector search (RAG) and any AI provider — OpenAI, Claude, Gemini, Mistral, Groq, Ollama, and more.",
 	"author": "a2Fsa2k",
