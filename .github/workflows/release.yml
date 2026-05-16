@@ -10,6 +10,8 @@ env:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -51,4 +53,12 @@ jobs:
             --notes "See README for installation and usage instructions." \
             plugin/main.js \
             plugin/manifest.json \
+            plugin/styles.css
+
+      - name: Attest release assets
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            plugin/main.js
+            plugin/manifest.json
             plugin/styles.css
