@@ -39,6 +39,7 @@ jobs:
         run: |
           MANIFEST_VERSION=$(node -p "require('./plugin/manifest.json').version")
           TAG_VERSION=${{ steps.get_version.outputs.VERSION }}
+          TAG_VERSION=${TAG_VERSION#v}
           if [ "$MANIFEST_VERSION" != "$TAG_VERSION" ]; then
             echo "Error: manifest.json version ($MANIFEST_VERSION) does not match tag ($TAG_VERSION)"
             exit 1
